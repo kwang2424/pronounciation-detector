@@ -1,0 +1,7 @@
+torch
+torchaudio
+transformers
+phonemizer
+panphon
+numpy
+soundfile
