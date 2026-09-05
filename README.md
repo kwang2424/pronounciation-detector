@@ -8,6 +8,7 @@ pip install -r requirements.txt
 python -m pytest tests            # alignment/diagnosis tests, no model needed
 python -m mdd.pipeline "Ich möchte ein Bier" rec.wav       # full pipeline
 python -m mdd.pipeline "Ich möchte ein Bier" --ipa "ɪk mɔktə aɪn biːɾ"   # text-only dry run
+python app.py                     # web UI: record in the browser, see flagged sounds + tips
 ```
 First real run downloads `facebook/wav2vec2-xlsr-53-espeak-cv-ft` (~1.2 GB).
 

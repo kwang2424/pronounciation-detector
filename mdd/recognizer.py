@@ -36,7 +36,7 @@ class PhoneRecognizer:
         if wav.ndim > 1:
             wav = wav.mean(axis=1)
         if file_sr != sr:
-            wav = torchaudio.functional.resample(torch.from_numpy(wav), file_sr, sr).numpy()
+            wav = F.resample(torch.from_numpy(wav), file_sr, sr).numpy()
         return wav
 
     @torch.no_grad()

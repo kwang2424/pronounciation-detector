@@ -5,3 +5,4 @@ phonemizer
 panphon
 numpy
 soundfile
+gradio
