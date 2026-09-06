@@ -169,3 +169,28 @@ def test_alternative_backend_can_pass_a_contrast_espeak_renders():
     report = check_contrast(profile.contrast("soft-d"), profile, audio=True,
                             render=_tone, talkers=["v1", "v2"])
     assert report.usable
+
+
+def test_espeak_transcription_does_not_veto_a_different_backend():
+    """espeak collapses Danish stod. That settles what *espeak* will synthesise,
+    and says nothing about a neural voice or a recorded talker — vetoing on it
+    would reject audio the gate actually measured as distinct."""
+    from mdd.validate import check_contrast
+
+    profile = get("da")
+    espeak_view = check_contrast(profile.contrast("stod"), profile, audio=False)
+    assert not espeak_view.usable, "espeak still gates stod"
+
+    other = check_contrast(profile.contrast("stod"), profile, audio=True,
+                           render=_tone, talkers=["v1", "v2"])
+    assert other.usable, "a backend that separates the pair should not be vetoed by espeak's G2P"
+    assert all("says nothing about this backend" in c.reason() for c in other.checks)
+
+
+def test_a_different_backend_that_also_collapses_the_pair_is_still_rejected():
+    from mdd.validate import check_contrast
+
+    profile = get("da")
+    report = check_contrast(profile.contrast("stod"), profile, audio=True,
+                            render=_collapsed, talkers=["v1", "v2"])
+    assert not report.usable

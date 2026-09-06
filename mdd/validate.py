@@ -134,20 +134,33 @@ class PairCheck:
     ipa_b: str
     transcription_distinct: bool
     separation: float | None
+    #: Whether the transcription is evidence about *this* backend. It is espeak's
+    #: G2P, so it settles what espeak will synthesise -- identical phonemes give
+    #: identical audio. It says nothing about another backend, and for the pairs
+    #: that matter most it is the very thing known to be wrong: espeak collapses
+    #: Danish stod, so vetoing a neural voice on that basis would reject audio it
+    #: never measured.
+    transcription_authoritative: bool = True
 
     @property
     def usable(self) -> bool:
-        if not self.transcription_distinct:
-            return False
         if self.separation is None:
-            return True          # no audio backend; trust the transcription
+            # No audio measured: the transcription is all the evidence there is.
+            return self.transcription_distinct
+        if self.transcription_authoritative and not self.transcription_distinct:
+            return False
         return self.separation >= SEPARATION_THRESHOLD
 
     def reason(self) -> str:
-        if not self.transcription_distinct:
+        if self.separation is None:
+            return "ok" if self.transcription_distinct else f"identical transcription /{self.ipa_a}/"
+        if self.transcription_authoritative and not self.transcription_distinct:
             return f"identical transcription /{self.ipa_a}/"
-        if self.separation is not None and self.separation < SEPARATION_THRESHOLD:
-            return f"audio separation {self.separation:.2f}x is within synthesiser jitter"
+        if self.separation < SEPARATION_THRESHOLD:
+            return f"audio separation {self.separation:.2f}x is within renderer jitter"
+        if not self.transcription_distinct:
+            return (f"ok on audio ({self.separation:.2f}x); espeak transcribes both as "
+                    f"/{self.ipa_a}/, which says nothing about this backend")
         return "ok"
 
 
@@ -186,7 +199,8 @@ def check_contrast(contrast: Contrast, profile: LanguageProfile,
             # transcribe distinctly and still render as the same audio.
             sep = (acoustic_separation(a, b, profile.code, render=render, talkers=talkers)
                    if audio else None)
-            checks.append(PairCheck(a, b, ia, ib, distinct, sep))
+            checks.append(PairCheck(a, b, ia, ib, distinct, sep,
+                                    transcription_authoritative=render is None))
     return ContrastReport(contrast.id, contrast.label, checks)
 
 
