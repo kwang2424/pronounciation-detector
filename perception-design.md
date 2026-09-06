@@ -168,8 +168,11 @@ Both diagnosis and stimulus generation are untrustworthy. Fix is a real G2P
 - **Minimal pair coverage is small** — 3-4 sets per contrast, hand-written. Real
   HVPT uses far more items and more phonetic environments to prevent item-level
   memorisation.
-- **No retention scheduling.** Trials are steered by within-session accuracy
-  only. Spacing contrasts across days (FSRS-style) is the obvious next step.
+- **Retention scheduling is coarse.** Progress persists across sittings
+  (`mdd/progress.py`) and steering uses lifetime accuracy with least-recently-
+  practised as the tiebreak, which spaces practice within a training block. That
+  is not a real spaced-repetition schedule: there is no per-contrast interval
+  growth and no due date, so the app cannot yet tell you *when* to come back.
 - **L1 is assumed to be English.** `Contrast.l1` records the assumption so other
   L1s can be added without rewriting the tables.
 - **Unverified: recogniser vocab coverage for Danish.** The production side scores
@@ -181,11 +184,27 @@ Both diagnosis and stimulus generation are untrustworthy. Fix is a real G2P
   scoring in particular should be treated as unproven until someone runs it.
   Perception training is unaffected: it uses no model at all.
 
+## 7a. Persistence
+
+Sessions are the source of truth, keyed by id; lifetime totals are *derived* by
+summing them, never accumulated in place. That matters because the app saves
+after every answer — a training session is normally closed, not formally ended —
+and an accumulating write would count the same session once per answer. The first
+version did exactly that and reported 21 trials for 6 answered; the regression
+test is `test_saving_the_same_session_repeatedly_does_not_inflate_totals`.
+
+Trimming to `MAX_SESSIONS` folds older sessions into an `archived` totals blob, so
+bounding the file does not quietly shrink your history. A corrupt or
+future-versioned file is reported and treated as empty, and left on disk untouched
+rather than overwritten.
+
 ## 8. Roadmap
 
 1. Recorded talkers from Common Voice, replacing synthesis for the languages
    that have coverage.
-2. Cross-session persistence + spaced scheduling of contrasts.
+2. Spaced scheduling on top of the persisted history: per-contrast intervals and
+   due dates, so the app can say when a contrast is due rather than only which is
+   weakest. (Persistence itself landed in `mdd/progress.py`.)
 3. Real Korean G2P, then re-enable Korean.
 4. Wire perception results into production: flag the contrasts a learner cannot
    *hear* before scoring them on saying it.

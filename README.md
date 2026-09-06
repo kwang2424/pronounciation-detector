@@ -19,6 +19,8 @@ python -m mdd.pipeline "Ich möchte ein Bier" rec.wav
 python -m mdd.pipeline "Ich möchte ein Bier" --ipa "ɪk mɔktə aɪn biːɾ"   # text-only dry run
 python -m mdd.pipeline "mad gade" --lang da --ipa "mad ɡadə"
 
+# perception progress is kept in ~/.mdd/progress.json ($MDD_PROGRESS to move it)
+
 # which contrasts can espeak actually render?
 python -m mdd.validate da
 python -m mdd.validate --no-audio          # fast, transcription check only
@@ -46,6 +48,12 @@ rather than the rhyme, and `hun`/`hund` and `mor`/`mord` come out identical — 
 stød is excluded from training rather than drilled with unanswerable trials. It
 is still diagnosed on the production side, where the learner's own audio is the
 evidence.
+
+Perception progress persists across sittings in `~/.mdd/progress.json` (set
+`$MDD_PROGRESS` to move it). The app saves after every answer, so closing the tab
+mid-session loses nothing, and practice is steered by *lifetime* accuracy with
+least-recently-practised as the tiebreak — which spaces a training block instead
+of grinding one contrast. Delete the file to start over.
 
 **Korean** perception training is off. espeak collapses the three-way laryngeal
 contrast (자다/짜다 both give `tɕɐdɐ`), skips obligatory sandhi (신라 → `sinɾɐ`
