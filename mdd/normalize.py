@@ -1,57 +1,52 @@
 """Map espeak-flavoured IPA (from G2P or the CTC recognizer) into one token set.
 
 Tokens are strings. Long vowels keep the length mark attached ("aː" is one
-token). Affricates are single tokens. Stress, glottal stops and tie bars
-are removed. Regional r variants collapse to "ʁ".
+token). Affricates and diphthongs are single tokens. Stress and tie bars are
+removed. Which marks survive is language-specific: German strips the glottal
+stop (predictable before initial vowels), Danish keeps it because that is how
+espeak spells stød, which is phonemic there.
 """
-import re
 import unicodedata
 
-AFFRICATES = ("pf", "ts", "tʃ", "dʒ")
-DIPHTHONGS = ("aɪ", "aʊ", "ɔʏ", "ɔɪ", "ɔy", "ɔø")
-MULTI = DIPHTHONGS + AFFRICATES
-R_VARIANTS = {"r", "ʀ", "ɾ", "ʁ"}          # all accepted as canonical German r
-STRIP = {"ˈ", "ˌ", "ʔ", "͡", "‿", ".", " ", "|", "̯", "̃"}
+from .languages import LanguageProfile, get
+
 SYLLABIC = "̩"
 
-# recogniser sometimes emits these for the same phone
-EQUIV = {
-    "ɐ̯": "ɐ", "ɛ̃": "ɛ", "ɑ": "a", "ɑː": "aː", "ɹ": "ɹ",  # keep English r distinct!
-    "ɔø": "ɔʏ", "ɔy": "ɔʏ", "ɔɪ": "ɔʏ",   # espeak writes eu/äu as ɔø
-    "g": "ɡ",                              # ASCII g -> IPA ɡ (U+0261), which espeak and panphon use
-    # inventory mismatches found by the native-control eval: the recogniser never emits ʏ or ɛː
-    "ʏ": "y",                              # short ü: model says y for espeak's ʏ (100% false flags otherwise)
-    "ɛː": "eː",                            # long ä: merged with eː by the model (and by most speakers)
-}
 
+def tokenize(ipa: str, profile: LanguageProfile | str | None = None) -> list[str]:
+    if not isinstance(profile, LanguageProfile):
+        profile = get(profile)
+    strip = profile.strip_set()
+    # Longest-first so "ɑw" wins over "ɑ", and "tɕh" over "tɕ".
+    multi = sorted(profile.multi, key=len, reverse=True)
 
-def tokenize(ipa: str) -> list[str]:
     s = unicodedata.normalize("NFD", ipa)
-    s = "".join(ch for ch in s if ch not in STRIP)
+    s = "".join(ch for ch in s if ch not in strip)
     toks: list[str] = []
     i = 0
     while i < len(s):
-        # affricate?
-        hit = next((a for a in MULTI if s.startswith(a, i)), None)
+        hit = next((a for a in multi if s.startswith(unicodedata.normalize("NFD", a), i)), None)
         if hit:
-            tok, i = hit, i + len(hit)
+            n = len(unicodedata.normalize("NFD", hit))
+            tok, i = s[i:i + n], i + n
         else:
             tok, i = s[i], i + 1
-        # absorb length mark / syllabic mark / combining marks
+        # absorb length mark / syllabic mark / other combining marks
         while i < len(s) and (s[i] == "ː" or s[i] == SYLLABIC or unicodedata.combining(s[i])):
             tok += s[i]
             i += 1
         toks.append(tok)
-    # normalisation passes
-    out = []
+
+    out: list[str] = []
     for t in toks:
         t = unicodedata.normalize("NFC", t)
-        if t in R_VARIANTS:
-            t = "ʁ"
-        t = EQUIV.get(t, t)
+        if t in profile.r_variants:
+            t = profile.r_canonical
+        t = profile.equiv.get(t, t)
         # syllabic n/m/l <-> ən/əm/əl : represent as schwa + consonant
         if t.endswith(SYLLABIC):
             out.append("ə")
             t = t[:-1]
-        out.append(t)
+        if t:
+            out.append(t)
     return out

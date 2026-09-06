@@ -9,7 +9,8 @@ from dataclasses import asdict, dataclass
 from .align import align
 from .diagnose import tip_for
 from .g2p import text_to_ipa_words
-from .normalize import MULTI, tokenize
+from .languages import LanguageProfile, get
+from .normalize import tokenize
 
 GOP_THRESHOLD = -1.0   # native TTS voices give 2.6% phone FPR here (4.3% with the gate off at 0);
                        # kept slightly conservative for noisier microphone audio. See eval/results/.
@@ -18,11 +19,10 @@ FLAG_LENGTH_ONLY = False   # aː vs a etc.: 37% false-positive rate on native sp
 INS_MIN_PROB = 0.6     # an inserted phone counts only if the recogniser was this sure of it (spurious
                        # insertions on native speech have median confidence 0.38, real phones 0.95)
 
-# espeak's G2P writes coda r as consonantal ʁ (Bier -> biːʁ), but native speakers vocalise it
-# to [ɐ] or merge it into the preceding vowel. Accept those realisations as a match; only
-# English [ɹ] or a wrong consonant remains an error. Onset r (rot, Brot) stays strict.
-_VOWEL_START = set("aeiouyæøœɐɑɒɔəɘɛɜɪʊʏ")
-_CODA_R_OK = {None, "ɐ", "ɜ", "ə", "a"}
+# Coda r: espeak's G2P writes it as a consonant (German Bier -> biːʁ), but speakers vocalise it
+# to [ɐ] or merge it into the preceding vowel. Which realisations count as native is per-language
+# (`profile.coda_r_ok`); onset r stays strict everywhere.
+_VOWEL_START = set("aeiouyæøœɐɑɒɔəɘɛɜɪʊʏɯʌ")
 
 
 def _is_vowel(tok: str) -> bool:
@@ -45,17 +45,18 @@ class PhoneResult:
     conf: float | None = None   # recogniser confidence in the realised phone (insertions only)
 
 
-def _token_confidences(spikes: list[tuple[str, float]], real_tokens: list[str]) -> list[float] | None:
+def _token_confidences(spikes: list[tuple[str, float]], real_tokens: list[str],
+                       profile: LanguageProfile) -> list[float] | None:
     """Carry each spike's confidence over to the normalised token list. Returns None if the
     per-spike tokenisation cannot be reconciled with tokenize() of the joined string."""
     toks, conf = [], []
     for tok, c in spikes:
-        for sub in tokenize(tok):
+        for sub in tokenize(tok, profile):
             toks.append(sub)
             conf.append(c)
     i = 0
     while i < len(toks) - 1:          # tokenize() merges e.g. a+ɪ -> aɪ across spikes
-        if toks[i] + toks[i + 1] in MULTI:
+        if toks[i] + toks[i + 1] in profile.multi:
             toks[i:i + 2] = [toks[i] + toks[i + 1]]
             conf[i:i + 2] = [min(conf[i], conf[i + 1])]
         else:
@@ -68,12 +69,14 @@ def _length_only(a: str | None, b: str | None) -> bool:
 
 
 def analyse(text: str, wav_path: str | None = None, recognizer=None, realized_ipa: str | None = None,
-            threshold: float = GOP_THRESHOLD, flag_length: bool = FLAG_LENGTH_ONLY) -> dict:
+            threshold: float = GOP_THRESHOLD, flag_length: bool = FLAG_LENGTH_ONLY,
+            lang: LanguageProfile | str | None = None) -> dict:
     """If `realized_ipa` is given, skip audio (useful for tests / synthetic eval)."""
-    words = text_to_ipa_words(text)
+    profile = lang if isinstance(lang, LanguageProfile) else get(lang)
+    words = text_to_ipa_words(text, profile)
     canon_tokens, word_of, coda_of = [], [], []
     for w, ipa in words:
-        toks = tokenize(ipa)
+        toks = tokenize(ipa, profile)
         canon_tokens += toks
         word_of += [w] * len(toks)
         coda_of += _coda_flags(toks)
@@ -85,9 +88,9 @@ def analyse(text: str, wav_path: str | None = None, recognizer=None, realized_ip
         spikes = recognizer.greedy_spikes(logp)
         realized_ipa = "".join(tok for tok, _ in spikes)
         gops = [s.gop for s in recognizer.gop(logp, canon_tokens)]
-    real_tokens = tokenize(realized_ipa)
+    real_tokens = tokenize(realized_ipa, profile)
     if gops is not None:
-        confs = _token_confidences(spikes, real_tokens)
+        confs = _token_confidences(spikes, real_tokens, profile)
 
     results, ci, ri = [], 0, 0
     for op in align(canon_tokens, real_tokens):
@@ -98,7 +101,8 @@ def analyse(text: str, wav_path: str | None = None, recognizer=None, realized_ip
         if op.op != "ins":
             gop = gops[ci] if gops else None
             word = word_of[ci]
-            if op.canonical == "ʁ" and coda_of[ci] and op.realized in _CODA_R_OK:
+            if (op.canonical == profile.r_canonical and coda_of[ci]
+                    and op.realized in profile.coda_r_ok):
                 kind = "match"
             if not flag_length and _length_only(op.canonical, op.realized):
                 kind = "match"
@@ -110,7 +114,7 @@ def analyse(text: str, wav_path: str | None = None, recognizer=None, realized_ip
         else:
             flagged = kind != "match" and (gop is None or gop < threshold)
         results.append(PhoneResult(word, op.canonical, op.realized, kind, gop, flagged,
-                                   tip_for(op.canonical, op.realized) if flagged else None,
+                                   tip_for(op.canonical, op.realized, profile) if flagged else None,
                                    conf if kind == "ins" else None))
 
     word_scores = {}
@@ -120,6 +124,7 @@ def analyse(text: str, wav_path: str | None = None, recognizer=None, realized_ip
     n_canon = sum(1 for r in results if r.op != "ins")
     return {
         "text": text,
+        "lang": profile.code,
         "canonical": " ".join(canon_tokens),
         "realized": " ".join(real_tokens),
         "phones": [asdict(r) for r in results],
@@ -135,12 +140,14 @@ def main():
     ap.add_argument("wav", nargs="?")
     ap.add_argument("--ipa", help="skip audio; supply realised IPA directly")
     ap.add_argument("--threshold", type=float, default=GOP_THRESHOLD)
+    ap.add_argument("--flag-length", action="store_true", help="also flag vowel-length-only errors")
+    ap.add_argument("--lang", default=None, help="language code (de, da, ko)")
     a = ap.parse_args()
     rec = None
     if a.ipa is None:
         from .recognizer import PhoneRecognizer
         rec = PhoneRecognizer()
-    rep = analyse(a.text, a.wav, rec, a.ipa, a.threshold)
+    rep = analyse(a.text, a.wav, rec, a.ipa, a.threshold, a.flag_length, a.lang)
     print(json.dumps(rep, ensure_ascii=False, indent=2))
 
 
