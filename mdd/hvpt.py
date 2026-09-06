@@ -24,9 +24,11 @@ over pairs the synthesiser renders identically.
 from __future__ import annotations
 
 import random
+import uuid
 from dataclasses import dataclass, field
 
 from .languages import Contrast, LanguageProfile, get
+from .progress import Progress
 from .synth import TALKERS, Talker
 
 MIN_CHOICES = 2
@@ -88,14 +90,25 @@ class Session:
                  contrast_ids: list[str] | None = None,
                  seed: int | None = None,
                  validate: bool = True,
-                 audio_check: bool = False):
+                 audio_check: bool = False,
+                 progress: Progress | None = None):
         """`audio_check` adds the (slow, stochastic) acoustic gate on top of the
         deterministic transcription gate. Off by default so the set of available
-        contrasts is stable run to run; `python -m mdd.validate` runs both."""
+        contrasts is stable run to run; `python -m mdd.validate` runs both.
+
+        `progress`, when given, seeds this session from prior history so practice
+        is steered by lifetime accuracy rather than by the last few minutes."""
         self.profile = lang if isinstance(lang, LanguageProfile) else get(lang)
         self.rng = random.Random(seed)
         self.stats: dict[str, ContrastStats] = {}
         self.history: list[tuple[Trial, bool]] = []
+        self.progress = progress
+        #: Stable id so repeated saves of this session upsert one record.
+        self.id = uuid.uuid4().hex
+        #: Lifetime totals carried in from `progress`, so a session's own report
+        #: stays a record of *this* sitting while steering uses the long run.
+        self.prior: dict[str, ContrastStats] = {}
+        self._last_practiced: dict[str, float] = {}
         self._streak = 0
         self._n_choices = MIN_CHOICES
         self._last_talker: Talker | None = None
@@ -118,6 +131,14 @@ class Session:
         if not self.pools:
             raise PerceptionUnavailable(
                 f"no usable contrasts for {self.profile.name}: {self.skipped}")
+
+        if progress is not None:
+            for cid, h in progress.history(self.profile.code).items():
+                if cid in self.pools:
+                    self.prior[cid] = ContrastStats(seen=h.seen, correct=h.correct,
+                                                    confusions=dict(h.confusions))
+                    if h.last_practiced is not None:
+                        self._last_practiced[cid] = h.last_practiced
 
     def _usable_groups(self, contrast: Contrast, validate: bool,
                        audio_check: bool) -> list[tuple[str, ...]]:
@@ -143,6 +164,21 @@ class Session:
     def contrast_ids(self) -> list[str]:
         return list(self.pools)
 
+    def combined(self, contrast_id: str) -> ContrastStats:
+        """Lifetime stats for a contrast: prior history plus this session."""
+        prior = self.prior.get(contrast_id)
+        live = self.stats.get(contrast_id)
+        if prior is None:
+            return live or ContrastStats()
+        if live is None:
+            return prior
+        merged = ContrastStats(seen=prior.seen + live.seen,
+                               correct=prior.correct + live.correct,
+                               confusions=dict(prior.confusions))
+        for key, n in live.confusions.items():
+            merged.confusions[key] = merged.confusions.get(key, 0) + n
+        return merged
+
     def _pick_talker(self) -> Talker:
         options = [t for t in TALKERS if t != self._last_talker] or list(TALKERS)
         talker = self.rng.choice(options)
@@ -164,11 +200,20 @@ class Session:
                      self.profile.code)
 
     def _weakest_contrast(self) -> str:
-        """Spend trials where accuracy is lowest, sampling unseen contrasts first."""
-        unseen = [c for c in self.pools if c not in self.stats]
+        """Spend trials where lifetime accuracy is lowest, unpractised ones first.
+
+        Ties break toward the least recently practised contrast, which spaces
+        practice across a training block instead of grinding one contrast.
+        """
+        unseen = [c for c in self.pools if self.combined(c).seen == 0]
         if unseen:
             return self.rng.choice(unseen)
-        return min(self.pools, key=lambda c: (self.stats[c].accuracy, -self.stats[c].seen))
+
+        def rank(cid: str):
+            st = self.combined(cid)
+            return (st.accuracy, self._last_practiced.get(cid, 0.0), -st.seen)
+
+        return min(self.pools, key=rank)
 
     def record(self, trial: Trial, choice: str | int) -> bool:
         correct = trial.is_correct(choice)
@@ -198,6 +243,8 @@ class Session:
         return sum(s.correct for s in self.stats.values()) / seen if seen else 0.0
 
     def report(self) -> dict:
+        """This sitting's results. `contrasts` covers only what was practised now;
+        `lifetime` carries the running totals across sessions when history exists."""
         out = {
             "language": self.profile.name,
             "lang": self.profile.code,
@@ -205,6 +252,7 @@ class Session:
             "accuracy": self.accuracy(),
             "difficulty": self._n_choices,
             "contrasts": {},
+            "lifetime": {},
             "skipped": dict(self.skipped),
         }
         for cid, st in self.stats.items():
@@ -221,7 +269,27 @@ class Session:
                 (target, picked), n = worst
                 entry["worst_confusion"] = {"target": target, "picked": picked, "count": n}
             out["contrasts"][cid] = entry
+
+        for cid in self.pools:
+            st = self.combined(cid)
+            if st.seen:
+                out["lifetime"][cid] = {
+                    "label": self.profile.contrast(cid).label,
+                    "seen": st.seen,
+                    "correct": st.correct,
+                    "accuracy": st.accuracy,
+                }
         return out
+
+    def save(self) -> str | None:
+        """Fold this session into the progress store and write it out.
+
+        No-op without a store or with nothing practised. Returns the path written.
+        """
+        if self.progress is None or not self.history:
+            return None
+        self.progress.record_session(self.profile.code, self.report(), self.id)
+        return str(self.progress.save())
 
 
 class PerceptionUnavailable(RuntimeError):

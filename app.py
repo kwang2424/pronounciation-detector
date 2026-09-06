@@ -3,6 +3,7 @@ from mdd._utf8 import ensure_utf8_mode
 
 ensure_utf8_mode()
 
+import datetime as _dt  # noqa: E402
 import tempfile  # noqa: E402
 from pathlib import Path  # noqa: E402
 
@@ -11,6 +12,7 @@ import gradio as gr  # noqa: E402
 from mdd.hvpt import PerceptionUnavailable, Session  # noqa: E402
 from mdd.languages import PROFILES  # noqa: E402
 from mdd.pipeline import GOP_THRESHOLD, analyse  # noqa: E402
+from mdd.progress import Progress  # noqa: E402
 
 _recognizer = None
 _TMP = Path(tempfile.gettempdir()) / "mdd-stimuli"
@@ -71,8 +73,9 @@ def on_lang_change(lang_name: str):
 # --------------------------------------------------------------------------
 def start_session(lang_name: str):
     code = PERCEPTION_LANGS[lang_name]
+    store = Progress.load()
     try:
-        session = Session(code)
+        session = Session(code, progress=store)
     except PerceptionUnavailable as exc:
         raise gr.Error(str(exc))
     note = ""
@@ -81,6 +84,12 @@ def start_session(lang_name: str):
         note = (f"\n\n*Not trained: {skipped} — the synthesiser cannot render "
                 f"{'them' if len(session.skipped) > 1 else 'it'} distinctly, so a trial "
                 f"would be unanswerable.*")
+    if store.load_error:
+        note += (f"\n\n*Starting from an empty history: {store.load_error}. "
+                 f"Past practice is not lost — the existing file is left untouched.*")
+    elif session.prior:
+        done = sum(st.seen for st in session.prior.values())
+        note += f"\n\n*Picking up {done} earlier trials from {store.path}.*"
     return (session, *_serve(session, f"Session started · {len(session.contrast_ids)} "
                                       f"contrasts{note}"))
 
@@ -93,7 +102,7 @@ def _serve(session: Session, message: str):
     heading = f"### {contrast.label}\n{contrast.why}"
     return (trial, str(path), heading,
             gr.update(choices=list(trial.choices), value=None, visible=True),
-            message, _stats(session))
+            message, _stats(session), _trend(session))
 
 
 def submit(session: Session, trial, choice: str | None):
@@ -102,6 +111,12 @@ def submit(session: Session, trial, choice: str | None):
     if not choice:
         raise gr.Error("Pick what you heard.")
     correct = session.record(trial, choice)
+    # Save after every answer: a training session that is closed rather than
+    # formally ended is the normal case, and losing it would defeat the point.
+    try:
+        session.save()
+    except OSError as exc:
+        gr.Warning(f"Could not save progress: {exc}")
     contrast = session.profile.contrast(trial.contrast_id)
     if correct:
         message = f"✅ **{trial.target}** — correct."
@@ -112,14 +127,38 @@ def submit(session: Session, trial, choice: str | None):
 
 
 def _stats(session: Session) -> str:
-    if not session.history:
-        return "_No trials yet._"
-    lines = [f"**{session.accuracy():.0%}** over {len(session.history)} trials · "
-             f"{session.difficulty} choices per trial", "", "| Contrast | Trials | Correct |",
-             "|---|---|---|"]
-    for entry in session.report()["contrasts"].values():
-        lines.append(f"| {entry['label']} | {entry['seen']} | {entry['accuracy']:.0%} |")
+    rep = session.report()
+    lines = []
+    if session.history:
+        lines += [f"**This session:** {session.accuracy():.0%} over {len(session.history)} "
+                  f"trials · {session.difficulty} choices per trial", ""]
+    else:
+        lines += ["_No trials this session yet._", ""]
+
+    lifetime = rep["lifetime"]
+    if lifetime:
+        lines += ["| Contrast | All trials | Accuracy | This session |", "|---|---|---|---|"]
+        for cid, life in sorted(lifetime.items(), key=lambda kv: kv[1]["accuracy"]):
+            now = rep["contrasts"].get(cid)
+            today = f"{now['accuracy']:.0%} ({now['seen']})" if now else "—"
+            lines.append(f"| {life['label']} | {life['seen']} | {life['accuracy']:.0%} | {today} |")
+        lines += ["", "_Sorted weakest first — that is the order practice is steered in._"]
     return "\n".join(lines)
+
+
+def _trend(session: Session) -> str:
+    """Per-session accuracy over time: the signal a single sitting cannot show."""
+    if session.progress is None:
+        return ""
+    records = session.progress.sessions(session.profile.code)
+    if len(records) < 2:
+        return ("### Trend\n_Two or more saved sessions are needed before a trend means "
+                "anything. HVPT gains show up across a block of sessions, not within one._")
+    rows = ["### Trend", "", "| Session | Trials | Accuracy |", "|---|---|---|"]
+    for i, r in enumerate(records[-10:], start=max(1, len(records) - 9)):
+        stamp = _dt.datetime.fromtimestamp(r.at, _dt.UTC).astimezone().strftime("%Y-%m-%d %H:%M")
+        rows.append(f"| {i} · {stamp} | {r.trials} | {r.accuracy:.0%} |")
+    return "\n".join(rows)
 
 
 # --------------------------------------------------------------------------
@@ -173,7 +212,8 @@ with gr.Blocks(title="Pronunciation trainer") as demo:
             with gr.Column():
                 feedback = gr.Markdown()
                 stats = gr.Markdown()
-        outs = [trial_state, stimulus, prompt, choices, feedback, stats]
+                trend = gr.Markdown()
+        outs = [trial_state, stimulus, prompt, choices, feedback, stats, trend]
         start.click(start_session, plang, [session_state, *outs])
         answer.click(submit, [session_state, trial_state, choices], outs)
 

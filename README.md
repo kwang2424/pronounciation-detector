@@ -19,9 +19,12 @@ python -m mdd.pipeline "Ich möchte ein Bier" rec.wav
 python -m mdd.pipeline "Ich möchte ein Bier" --ipa "ɪk mɔktə aɪn biːɾ"   # text-only dry run
 python -m mdd.pipeline "mad gade" --lang da --ipa "mad ɡadə"
 
+# perception progress is kept in ~/.mdd/progress.json ($MDD_PROGRESS to move it)
+
 # which contrasts can espeak actually render?
 python -m mdd.validate da
 python -m mdd.validate --no-audio          # fast, transcription check only
+python -m eval.tts_probe da                # could a neural voice rescue a gated one? (needs internet)
 ```
 First real run of the production tab downloads `facebook/wav2vec2-xlsr-53-espeak-cv-ft` (~1.2 GB).
 The perception tab needs no model at all.
@@ -46,6 +49,12 @@ rather than the rhyme, and `hun`/`hund` and `mor`/`mord` come out identical — 
 stød is excluded from training rather than drilled with unanswerable trials. It
 is still diagnosed on the production side, where the learner's own audio is the
 evidence.
+
+Perception progress persists across sittings in `~/.mdd/progress.json` (set
+`$MDD_PROGRESS` to move it). The app saves after every answer, so closing the tab
+mid-session loses nothing, and practice is steered by *lifetime* accuracy with
+least-recently-practised as the tiebreak — which spaces a training block instead
+of grinding one contrast. Delete the file to start over.
 
 **Korean** perception training is off. espeak collapses the three-way laryngeal
 contrast (자다/짜다 both give `tɕɐdɐ`), skips obligatory sandhi (신라 → `sinɾɐ`
@@ -97,8 +106,14 @@ the tiers above need re-running per language before their numbers mean anything.
   voices are a usable bootstrap, not a replication. `Talker` and `synthesize` in
   `mdd/synth.py` are the only things a recorded-audio backend has to replace.
 - `mdd/validate.py` checks that a pair is rendered *distinctly*. It cannot check
-  that it is rendered *correctly* — the Korean uvular case is exactly that gap,
-  which is why `hvpt_ready` on the profile is a human judgement, not a computed one.
+  that it is rendered *correctly*. Two demonstrated cases: espeak renders Korean
+  fortis stops as uvulars, and it can be forced to "distinguish" Danish stød by
+  emitting a full glottal stop (4.8x separation, phonation dropping to 0% of peak
+  — a silent gap, where real stød is creaky voice that never goes silent). Both
+  pass every automated check and would train a category the language does not
+  have. That is why `hvpt_ready` is a human judgement, not a computed one, and
+  why a high separation ratio is a reason to listen to the clips rather than to
+  flip it. See `perception-design.md` §5.1.
 - Whether the recogniser's CTC vocabulary covers the Danish-specific units
   (`ʔ`, `ð`, `ɐ̯`) is **unverified** — scoring falls back to the token's first
   character when one is missing, so treat Danish stød scores as unproven until

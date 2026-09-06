@@ -1,4 +1,6 @@
 """Perception training: trial construction, staircase, and honest gating."""
+import itertools
+
 import pytest
 
 from mdd import synth
@@ -73,7 +75,7 @@ def test_difficulty_is_clamped_at_both_ends():
 def test_talker_never_repeats_on_consecutive_trials():
     session = Session("de", seed=5)
     talkers = [session.next_trial().talker for _ in range(25)]
-    assert all(a != b for a, b in zip(talkers, talkers[1:]))
+    assert all(a != b for a, b in itertools.pairwise(talkers))
 
 
 def test_practice_is_steered_toward_the_weakest_contrast():
@@ -117,3 +119,53 @@ def test_different_talkers_produce_different_renderings():
     a = synth.synthesize("hund", "da", synth.TALKERS[0])[1]
     b = synth.synthesize("hund", "da", synth.TALKERS[3])[1]
     assert len(a) != len(b) or a != b
+
+
+# ----------------------------------------------------- pluggable render backend
+_TONES: dict[tuple[str, str], list[int]] = {}
+
+
+def _tone(word: str, _lang: str, talker):
+    """A deterministic stand-in for recorded clips or neural TTS."""
+    import math
+
+    key = (word, str(talker))
+    if key not in _TONES:
+        freq = 120 + (abs(hash(word)) % 300)
+        _TONES[key] = [int(8000 * math.sin(2 * math.pi * freq * i / 22050)) for i in range(8820)]
+    return _TONES[key]
+
+
+def _collapsed(word, lang, talker):
+    """A backend that renders every word the same — the failure the gate exists for."""
+    return _tone("same", lang, talker)
+
+
+def test_deterministic_backend_is_scored_against_an_absolute_floor():
+    """Recorded clips and neural TTS have zero jitter; dividing by it would be
+    undefined, and reporting 'unknown' would silently disable the gate."""
+    from mdd.validate import SEPARATION_THRESHOLD, acoustic_separation
+
+    distinct = acoustic_separation("mad", "mat", "da", render=_tone, talkers=["v1", "v2"])
+    same = acoustic_separation("mad", "mat", "da", render=_collapsed, talkers=["v1", "v2"])
+    assert distinct is not None and distinct > SEPARATION_THRESHOLD
+    assert same is not None and same < SEPARATION_THRESHOLD
+
+
+def test_a_backend_that_collapses_a_pair_is_rejected():
+    from mdd.validate import check_contrast
+
+    profile = get("da")
+    report = check_contrast(profile.contrast("soft-d"), profile, audio=True,
+                            render=_collapsed, talkers=["v1", "v2"])
+    assert not report.usable
+    assert all("within" in c.reason() or not c.transcription_distinct for c in report.checks)
+
+
+def test_alternative_backend_can_pass_a_contrast_espeak_renders():
+    from mdd.validate import check_contrast
+
+    profile = get("da")
+    report = check_contrast(profile.contrast("soft-d"), profile, audio=True,
+                            render=_tone, talkers=["v1", "v2"])
+    assert report.usable
