@@ -1,5 +1,9 @@
 """End-to-end: audio + text -> per-phone detection/diagnosis report."""
-import json
+if __name__ == "__main__":
+    from ._utf8 import ensure_utf8_mode
+    ensure_utf8_mode()
+
+import json  # noqa: E402
 from dataclasses import asdict, dataclass
 
 from .align import align

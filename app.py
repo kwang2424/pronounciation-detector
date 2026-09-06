@@ -1,7 +1,11 @@
 """Gradio UI: type a German sentence, record it, see flagged phones and tips."""
-import gradio as gr
+from mdd._utf8 import ensure_utf8_mode
 
-from mdd.pipeline import GOP_THRESHOLD, analyse
+ensure_utf8_mode()
+
+import gradio as gr  # noqa: E402
+
+from mdd.pipeline import GOP_THRESHOLD, analyse  # noqa: E402
 
 _recognizer = None
 

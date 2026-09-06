@@ -2,6 +2,7 @@ torch
 torchaudio
 transformers
 phonemizer
+espeakng-loader
 panphon
 numpy
 soundfile
