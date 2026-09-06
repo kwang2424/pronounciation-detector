@@ -259,7 +259,14 @@ DANISH = LanguageProfile(
             id="stod",
             label="Stød vs no stød",
             phones=("ʔ",),
-            pairs=(("hun", "hund"), ("mor", "mord"), ("ven", "vend"), ("læser", "læsser")),
+            # Pure pairs first: segmentally identical, differing only by stød, with
+            # the written final -d silent in Danish. Those are the ones that tell
+            # you whether a voice renders stod at all -- if a backend makes them
+            # differ by an audible [d], it is spelling-reading, not stod.
+            # læser/læsser is kept but is *confounded*: it differs in vowel length
+            # as well as stod, so hearing it apart proves nothing about stod.
+            pairs=(("man", "mand"), ("hun", "hund"), ("ven", "vend"),
+                   ("mor", "mord"), ("bønner", "bønder"), ("læser", "læsser")),
             tip="Stød is creaky voice partway through the syllable — a catch, not a stop. "
                 "It is the only thing separating many word pairs.",
             why="English has no phonemic laryngealisation, so learners hear these as homophones "

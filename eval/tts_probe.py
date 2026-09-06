@@ -34,6 +34,28 @@ from mdd.validate import SEPARATION_THRESHOLD, check_contrast
 
 from .tts import synth_missing
 
+#: Listening protocols: a separation number says the audio differs, never that it
+#: differs correctly, and only your ears close that gap. Each entry is
+#: (words to render, what to listen for, what it means).
+PROTOCOLS = {
+    "da": [
+        (["mand", "hund", "vend", "land"],
+         "Does the word end in a hard English-style [d]?",
+         "It should NOT. Written final -d after n is silent in Danish. If you hear a [d], "
+         "the voice is reading spelling, and any hun/hund difference you hear is that [d] "
+         "— not stød."),
+        (["mad", "ved", "gade", "bade"],
+         "Is the final/medial d a soft, l-like sound rather than a hard [d]?",
+         "It should be [ð], tongue tip down. A hard [d] here means the voice does not "
+         "have the soft d either."),
+        (["man", "mand", "hun", "hund", "ven", "vend"],
+         "Within each pair, is the difference a catch/creak *inside* the vowel or nasal, "
+         "with the voice never going silent?",
+         "That is stød. A full silent gap is a glottal stop, which is the wrong sound. "
+         "An extra consonant at the end is spelling-reading. Only the first counts."),
+    ],
+}
+
 DEFAULT_VOICES = {
     "da": ["da-DK-ChristelNeural", "da-DK-JeppeNeural"],
     "de": ["de-DE-KatjaNeural", "de-DE-ConradNeural"],
@@ -77,6 +99,8 @@ def main():
     ap.add_argument("--voices", nargs="*",
                     help="voice specs, e.g. da-DK-JeppeNeural or edge:<name> / sapi:<name> / espeak")
     ap.add_argument("--outdir", default=None, help="where to keep the clips (default: a temp dir)")
+    ap.add_argument("--listen", action="store_true",
+                    help="render the diagnostic words and print what to listen for")
     args = ap.parse_args()
 
     profile = get(args.lang)
@@ -86,11 +110,27 @@ def main():
     outdir = Path(args.outdir) if args.outdir else Path(tempfile.mkdtemp(prefix="tts-probe-"))
     outdir.mkdir(parents=True, exist_ok=True)
 
-    contrasts = [profile.contrast(args.contrast)] if args.contrast else list(profile.contrasts)
     render = make_renderer(outdir)
 
     print(f"{profile.name} · voices: {', '.join(voices)}")
     print(f"clips kept in {outdir} — listen before trusting any number below\n")
+
+    if args.listen:
+        protocol = PROTOCOLS.get(args.lang)
+        if not protocol:
+            ap.error(f"no listening protocol defined for {args.lang!r}")
+        for words, question in ((w, q) for w, q, _ in protocol):
+            for w in words:
+                for v in voices:
+                    render(w, args.lang, v)
+        for i, (words, question, meaning) in enumerate(protocol, 1):
+            print(f"{i}. Play: {', '.join(words)}")
+            print(f"   Ask:  {question}")
+            print(f"   Then: {meaning}\n")
+        print(f"All clips are in {outdir}")
+        return
+
+    contrasts = [profile.contrast(args.contrast)] if args.contrast else list(profile.contrasts)
     for contrast in contrasts:
         # reps=1: neural TTS is deterministic, so the same-word floor is ~0 and
         # ratios come out far larger than espeak's. Compare against the threshold,
