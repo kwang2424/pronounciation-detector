@@ -55,7 +55,7 @@ JSON report + optional TTS of the correct form
 
 **[E] Confidence.** For each canonical phone p spanning frames [s,e] (from CTC forced alignment of the *canonical* sequence — use `torchaudio.functional.forced_align`), compute
 `GOP(p) = (1/(e−s)) Σ_t [ log P(p|x_t) − max_q log P(q|x_t) ]`.
-Near 0 → the canonical phone was the best hypothesis; strongly negative → the model preferred something else. Flag an error only when the free-decode alignment [D] disagrees **and** GOP(p) < τ. This two-signal rule is the main defense against false positives on correct speech.
+Near 0 → the canonical phone was the best hypothesis; strongly negative → the model preferred something else. Flag an error only when the free-decode alignment [D] disagrees **and** GOP(p) < τ. This two-signal rule is the main defense against false positives on correct speech. Insertions have no canonical phone to score, so they are gated instead on the recognizer's own confidence in the inserted phone (its peak CTC posterior; native-speech blips sit around 0.4, real phones around 0.95).
 
 **[F] Diagnosis.** A lookup keyed on `(canonical, realized)` → tip. Seed it with the L1-English error table in §6. Unknown pairs fall back to a generic message with the two IPA symbols. Optionally pass the structured diff to an LLM to phrase feedback; the LLM never sees audio and never decides what the error is.
 
@@ -89,7 +89,7 @@ Places where a naive pipeline goes wrong on German specifically:
 |---|---|
 | Vowel length/tenseness (`Stadt` /ʃtat/ vs `Staat` /ʃtaːt/) | Treat length as a feature on the vowel, not a separate token; substitution cost between long/short same-quality vowel is low but nonzero so it *is* flagged, with its own tip. |
 | `ch` allophones `[ç]` (ich) vs `[x]` (ach) | espeak G2P handles the rule; keep both distinct. Confusing them is a real learner error. |
-| `r` realizations `[ʁ] [r] [ʀ] [ɐ]` | Accept any of `ʁ/r/ʀ` as a match for canonical `ʁ` (regional variation, not error). Vocalized `[ɐ]` in coda is canonical per espeak; a learner producing consonantal r there is a *minor* flag. English `[ɹ]` is always a flag. |
+| `r` realizations `[ʁ] [r] [ʀ] [ɐ]` | Accept any of `ʁ/r/ʀ` as a match for canonical `ʁ` (regional variation, not error). espeak's G2P writes coda r as consonantal `ʁ` (Bier → biːʁ) even though natives vocalize it, so the pipeline accepts `[ɐ]`, `[ɜ]`, `[ə]`, `[a]` or nothing for coda `ʁ` (found by the native-control eval: coda r was the top false positive). Onset r stays strict. English `[ɹ]` is always a flag. |
 | Final devoicing (`Hund` → /hʊnt/) | espeak already devoices in G2P; a learner saying `[d]` gets flagged with a devoicing tip. |
 | Glottal stop `[ʔ]` before vowel-initial syllables | espeak may or may not emit it; strip `ʔ` from both sides in v1. |
 | Schwa / syllabic consonants (`-en` → `[n̩]`) | Map `ən` ≈ `n̩` as equivalent in v1. |

@@ -8,7 +8,7 @@ import re
 import unicodedata
 
 AFFRICATES = ("pf", "ts", "tʃ", "dʒ")
-DIPHTHONGS = ("aɪ", "aʊ", "ɔʏ", "ɔɪ", "ɔy")
+DIPHTHONGS = ("aɪ", "aʊ", "ɔʏ", "ɔɪ", "ɔy", "ɔø")
 MULTI = DIPHTHONGS + AFFRICATES
 R_VARIANTS = {"r", "ʀ", "ɾ", "ʁ"}          # all accepted as canonical German r
 STRIP = {"ˈ", "ˌ", "ʔ", "͡", "‿", ".", " ", "|", "̯", "̃"}
@@ -17,6 +17,11 @@ SYLLABIC = "̩"
 # recogniser sometimes emits these for the same phone
 EQUIV = {
     "ɐ̯": "ɐ", "ɛ̃": "ɛ", "ɑ": "a", "ɑː": "aː", "ɹ": "ɹ",  # keep English r distinct!
+    "ɔø": "ɔʏ", "ɔy": "ɔʏ", "ɔɪ": "ɔʏ",   # espeak writes eu/äu as ɔø
+    "g": "ɡ",                              # ASCII g -> IPA ɡ (U+0261), which espeak and panphon use
+    # inventory mismatches found by the native-control eval: the recogniser never emits ʏ or ɛː
+    "ʏ": "y",                              # short ü: model says y for espeak's ʏ (100% false flags otherwise)
+    "ɛː": "eː",                            # long ä: merged with eː by the model (and by most speakers)
 }
 
 

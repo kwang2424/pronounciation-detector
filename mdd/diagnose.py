@@ -9,7 +9,7 @@ def _add(canons, reals, tip):
             TIPS[(c, r)] = tip
 
 
-_add(["y", "yː", "ʏ"], ["u", "uː", "ʊ", "ju"], "ü: say /i/ (as in 'see') and round your lips without moving your tongue.")
+_add(["y", "yː"], ["u", "uː", "ʊ", "ju"], "ü: say /i/ (as in 'see') and round your lips without moving your tongue.")
 _add(["ø", "øː", "œ"], ["o", "oː", "ɔ", "ɛ", "ɜ", "ɜː"], "ö: say /e/ (as in 'say') and round your lips.")
 _add(["ç"], ["k", "ʃ", "x", "h"], "ich-Laut: a whispered 'h' as in 'huge' — tongue high and front, no contact.")
 _add(["x"], ["k", "h", "ç"], "ach-Laut: friction at the back of the mouth, like gently clearing your throat.")
@@ -19,11 +19,11 @@ _add(["v"], ["w"], "German w is English 'v': top teeth on lower lip.")
 _add(["f"], ["v"], "German v is usually /f/: Vater = 'fahter'.")
 _add(["ʃ"], ["s"], "s before t/p at word start is 'sh': Straße = 'shtrahsse'.")
 _add(["t"], ["d"], "Final devoicing: a written d at the end of a word is said /t/ (Hund = 'hunt').")
-_add(["k"], ["g"], "Final devoicing: a written g at the end of a word is said /k/ (Tag = 'tahk').")
+_add(["k"], ["ɡ"], "Final devoicing: a written g at the end of a word is said /k/ (Tag = 'tahk').")
 _add(["p"], ["b"], "Final devoicing: a written b at the end of a word is said /p/ (halb = 'halp').")
 _add(["ə"], ["eː", "e", "ɛ", "aɪ"], "Unstressed final -e is a short schwa — never 'ay', never silent.")
 _add(["aɪ"], ["iː", "i"], "ei is pronounced 'eye'.")
-_add(["ɔʏ", "ɔɪ"], ["juː", "u", "ɛʊ"], "eu/äu is pronounced 'oy'.")
+_add(["ɔʏ"], ["juː", "u", "uː", "ɛʊ", "ɔ", "ʊ"], "eu/äu is pronounced 'oy'.")
 _add(["pf"], ["f", "p"], "pf is one sound: close the lips for p, release straight into f.")
 
 
