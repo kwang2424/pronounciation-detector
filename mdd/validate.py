@@ -18,6 +18,7 @@ Two independent checks:
 """
 from __future__ import annotations
 
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from itertools import combinations
 
@@ -27,12 +28,19 @@ from .normalize import tokenize
 
 #: Between-word separation must exceed the same-word noise floor by this factor.
 SEPARATION_THRESHOLD = 1.35
+#: Floor used when a backend is deterministic (recorded clips, most neural TTS),
+#: where repeat renders are identical and the measured jitter is exactly zero.
+#: Spectra are unit-normalised, so distances live on a fixed scale: espeak's own
+#: jitter measures ~0.09-0.12 and clearly different words ~0.25-0.35. A floor well
+#: below the jitter band means "numerically identical", which lets the same ratio
+#: and the same threshold describe both kinds of backend.
+MIN_FLOOR = 0.02
 _FRAMES = 40
 _NFFT = 512
 _HOP = 128
 
 
-def _spectrum(samples: list[int]):
+def _spectrum(samples):
     import numpy as np
 
     x = np.asarray(samples, dtype=float)
@@ -59,40 +67,61 @@ def _distance(a, b) -> float:
     return float(np.linalg.norm(a - b))
 
 
-def _renders(word: str, lang: str, talker, reps: int):
+#: A render backend: (word, lang, talker) -> int16 samples. Swappable so the same
+#: honest gate can be pointed at neural TTS or recorded talkers, not just espeak.
+Renderer = Callable[[str, str, object], Sequence[int]]
+
+
+def espeak_renderer(word: str, lang: str, talker) -> Sequence[int]:
     from . import synth
 
+    return synth.synthesize(word, lang, talker)[1]
+
+
+def _renders(word: str, lang: str, talker, reps: int, render: Renderer):
     out = []
     for _ in range(reps):
-        spec = _spectrum(synth.synthesize(word, lang, talker)[1])
+        spec = _spectrum(render(word, lang, talker))
         if spec is not None:
             out.append(spec)
     return out
 
 
 def acoustic_separation(word_a: str, word_b: str, lang: str,
-                        reps: int = 3, n_talkers: int = 3) -> float | None:
+                        reps: int = 3, n_talkers: int = 3,
+                        render: Renderer | None = None,
+                        talkers: Sequence | None = None) -> float | None:
     """Between-word distance / same-word distance, averaged over talkers.
 
-    ~1.0 means the pair is indistinguishable from synthesiser jitter. Returns
-    None if audio is unavailable or the words are too short to analyse.
+    ~1.0 means the pair is indistinguishable from the renderer's own jitter. A
+    deterministic backend (recorded clips, most neural TTS) has no jitter, so it
+    is scored against `MIN_FLOOR` instead and a real difference yields a much
+    larger ratio than espeak ever produces -- compare against the threshold, not
+    against espeak's numbers. Returns None if audio is unavailable or the words
+    are too short to analyse.
+
+    `render` and `talkers` override the espeak backend; pass a renderer that
+    returns samples for a word and a list of whatever your talkers are keyed by.
     """
     from . import synth
 
-    if not synth.available():
-        return None
+    if render is None:
+        if not synth.available():
+            return None
+        render = espeak_renderer
+    pool = list(talkers) if talkers is not None else list(synth.TALKERS[:n_talkers])
     ratios = []
-    for talker in synth.TALKERS[:n_talkers]:
-        ra = _renders(word_a, lang, talker, reps)
-        rb = _renders(word_b, lang, talker, reps)
-        if len(ra) < 2 or len(rb) < 2:
+    for talker in pool:
+        ra = _renders(word_a, lang, talker, reps, render)
+        rb = _renders(word_b, lang, talker, reps, render)
+        if not ra or not rb:
             continue
         within = [_distance(x, y) for x, y in combinations(ra, 2)]
         within += [_distance(x, y) for x, y in combinations(rb, 2)]
         between = [_distance(x, y) for x in ra for y in rb]
-        floor = sum(within) / len(within)
-        if floor <= 0:
-            continue
+        # max() so a deterministic backend (zero jitter) is scored against an
+        # absolute floor instead of dividing by zero and reporting "unknown".
+        floor = max(sum(within) / len(within) if within else 0.0, MIN_FLOOR)
         ratios.append((sum(between) / len(between)) / floor)
     return sum(ratios) / len(ratios) if ratios else None
 
@@ -145,7 +174,8 @@ class ContrastReport:
 
 
 def check_contrast(contrast: Contrast, profile: LanguageProfile,
-                   audio: bool = True) -> ContrastReport:
+                   audio: bool = True, render: Renderer | None = None,
+                   talkers: Sequence | None = None) -> ContrastReport:
     checks: list[PairCheck] = []
     for group in contrast.pairs:
         ipa = {w: i for w, i in text_to_ipa_words(" ".join(group), profile)}
@@ -154,16 +184,18 @@ def check_contrast(contrast: Contrast, profile: LanguageProfile,
             distinct = tokenize(ia, profile) != tokenize(ib, profile)
             # Measured even when the transcription already differs: a pair can
             # transcribe distinctly and still render as the same audio.
-            sep = acoustic_separation(a, b, profile.code) if audio else None
+            sep = (acoustic_separation(a, b, profile.code, render=render, talkers=talkers)
+                   if audio else None)
             checks.append(PairCheck(a, b, ia, ib, distinct, sep))
     return ContrastReport(contrast.id, contrast.label, checks)
 
 
 def check_language(profile: LanguageProfile | str | None = None,
-                   audio: bool = True) -> list[ContrastReport]:
+                   audio: bool = True, render: Renderer | None = None,
+                   talkers: Sequence | None = None) -> list[ContrastReport]:
     if not isinstance(profile, LanguageProfile):
         profile = get(profile)
-    return [check_contrast(c, profile, audio) for c in profile.contrasts]
+    return [check_contrast(c, profile, audio, render, talkers) for c in profile.contrasts]
 
 
 def main():

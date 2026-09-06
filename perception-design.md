@@ -109,7 +109,25 @@ It checks pairs are rendered *distinctly*, not *correctly*. espeak renders Korea
 through both checks, but it is not the Korean fortis/lenis contrast, and training
 on it would build a category that does not exist in the language.
 
-No automatic check catches that. Hence `hvpt_ready` on the profile: a human
+Danish stød is the same trap, and a more tempting one. espeak writes `hund` as
+the mnemonic `h'?un` and `hun` as `h?un` — identical but for the stress mark, so
+the pair is gated. But feed espeak an explicit glottal stop in the rhyme
+(`h'?u?n`) via its phoneme input and the audio separates at **4.8x**, far past the
+1.35 gate. It looks like stød became trainable.
+
+It did not. Measuring the amplitude envelope, the forced version drops to **0% of
+peak** — phonation stops dead. That is a glottal stop: a silent gap. Danish stød
+is creaky voice with phonation *continuing* through the rhyme, irregular but never
+silent. A learner trained on it would learn to listen for a gap that real Danish
+does not contain.
+
+This matters because of where it sits. Once a correct lexicon lands and the
+pipeline knows `hund` carries stød, "just emit a glottal stop" is the obvious next
+step, and it passes every automated check in this repo. **Do not.** espeak's
+Danish inventory has no creaky-voice unit and a formant synthesiser of this kind
+does not model irregular phonation at all.
+
+No automatic check catches any of this. Hence `hvpt_ready` on the profile: a human
 judgement, set False for Korean, with the reason recorded next to it.
 
 ### 5.2 Which check runs when
@@ -198,10 +216,29 @@ bounding the file does not quietly shrink your history. A corrupt or
 future-versioned file is reported and treated as empty, and left on disk untouched
 rather than overwritten.
 
+## 7b. Swapping the render backend
+
+`mdd/validate.py` takes a `render` callable, so the same gate can be pointed at
+neural TTS or recorded clips instead of espeak. Two backend kinds need different
+floors and the code handles both: espeak is stochastic and is scored against its
+own measured jitter; recorded clips and most neural TTS are deterministic, where
+that jitter is exactly zero, so they are scored against `MIN_FLOOR` instead. The
+first version of the pluggable backend divided by the measured floor
+unconditionally and returned "unknown" for every deterministic pair — which
+silently disabled the gate for precisely the backends it was added to support.
+
+`python -m eval.tts_probe da` runs the gate over Danish neural voices and reports
+which gated contrasts a better voice could rescue. It needs internet. It also
+keeps the clips and prints the path, because after the glottal-stop finding above,
+a high separation ratio is a reason to *listen*, never to flip `hvpt_ready`.
+
 ## 8. Roadmap
 
-1. Recorded talkers from Common Voice, replacing synthesis for the languages
-   that have coverage.
+1. Recorded talkers, replacing synthesis. Note the shape needed is unusual: the
+   *same* small minimal-pair list from *many* talkers, which general ASR corpora
+   do not contain — it is ~40 words x 8 speakers, about five minutes of audio,
+   so the scarcity is shape and labelling, not volume. The HVPT literature
+   recorded its own stimuli for exactly this reason.
 2. Spaced scheduling on top of the persisted history: per-contrast intervals and
    due dates, so the app can say when a contrast is due rather than only which is
    weakest. (Persistence itself landed in `mdd/progress.py`.)
