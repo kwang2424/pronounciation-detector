@@ -9,6 +9,7 @@ from dataclasses import asdict, dataclass
 from .align import align
 from .diagnose import tip_for
 from .g2p import text_to_ipa_words
+from .languages import LanguageProfile, get
 from .normalize import tokenize
 
 GOP_THRESHOLD = -2.0   # calibrate on native Common Voice (§7 of the design doc)
@@ -26,12 +27,14 @@ class PhoneResult:
 
 
 def analyse(text: str, wav_path: str | None = None, recognizer=None, realized_ipa: str | None = None,
-            threshold: float = GOP_THRESHOLD) -> dict:
+            threshold: float = GOP_THRESHOLD,
+            lang: LanguageProfile | str | None = None) -> dict:
     """If `realized_ipa` is given, skip audio (useful for tests / synthetic eval)."""
-    words = text_to_ipa_words(text)
+    profile = lang if isinstance(lang, LanguageProfile) else get(lang)
+    words = text_to_ipa_words(text, profile)
     canon_tokens, word_of = [], []
     for w, ipa in words:
-        toks = tokenize(ipa)
+        toks = tokenize(ipa, profile)
         canon_tokens += toks
         word_of += [w] * len(toks)
 
@@ -41,7 +44,7 @@ def analyse(text: str, wav_path: str | None = None, recognizer=None, realized_ip
         logp = recognizer.log_probs(wav)
         realized_ipa = recognizer.greedy_decode(logp)
         gops = [s.gop for s in recognizer.gop(logp, canon_tokens)]
-    real_tokens = tokenize(realized_ipa)
+    real_tokens = tokenize(realized_ipa, profile)
 
     results, ci = [], 0
     for op in align(canon_tokens, real_tokens):
@@ -55,7 +58,7 @@ def analyse(text: str, wav_path: str | None = None, recognizer=None, realized_ip
         disagree = op.op != "match"
         flagged = disagree and (gop is None or gop < threshold)
         results.append(PhoneResult(word, op.canonical, op.realized, op.op, gop, flagged,
-                                   tip_for(op.canonical, op.realized) if flagged else None))
+                                   tip_for(op.canonical, op.realized, profile) if flagged else None))
 
     word_scores = {}
     for r in results:
@@ -64,6 +67,7 @@ def analyse(text: str, wav_path: str | None = None, recognizer=None, realized_ip
     n_canon = sum(1 for r in results if r.op != "ins")
     return {
         "text": text,
+        "lang": profile.code,
         "canonical": " ".join(canon_tokens),
         "realized": " ".join(real_tokens),
         "phones": [asdict(r) for r in results],
@@ -79,12 +83,13 @@ def main():
     ap.add_argument("wav", nargs="?")
     ap.add_argument("--ipa", help="skip audio; supply realised IPA directly")
     ap.add_argument("--threshold", type=float, default=GOP_THRESHOLD)
+    ap.add_argument("--lang", default=None, help="language code (de, da, ko)")
     a = ap.parse_args()
     rec = None
     if a.ipa is None:
         from .recognizer import PhoneRecognizer
         rec = PhoneRecognizer()
-    rep = analyse(a.text, a.wav, rec, a.ipa, a.threshold)
+    rep = analyse(a.text, a.wav, rec, a.ipa, a.threshold, a.lang)
     print(json.dumps(rep, ensure_ascii=False, indent=2))
 
 

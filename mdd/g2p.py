@@ -1,4 +1,4 @@
-"""Reference text -> canonical IPA via espeak-ng (Standard German)."""
+"""Reference text -> canonical IPA via espeak-ng, for any profiled language."""
 import os
 import shutil
 
@@ -15,11 +15,17 @@ if "PHONEMIZER_ESPEAK_LIBRARY" not in os.environ and shutil.which("espeak-ng") i
 from phonemizer import phonemize  # noqa: E402
 from phonemizer.separator import Separator  # noqa: E402
 
+from .languages import DEFAULT  # noqa: E402
+
 _SEP = Separator(phone="", word="|", syllable="")
 
 
-def text_to_ipa_words(text: str, lang: str = "de") -> list[tuple[str, str]]:
-    """Return [(orthographic_word, ipa_string), ...] keeping word alignment."""
+def text_to_ipa_words(text: str, lang=None) -> list[tuple[str, str]]:
+    """Return [(orthographic_word, ipa_string), ...] keeping word alignment.
+
+    `lang` accepts an espeak code or a LanguageProfile.
+    """
+    lang = getattr(lang, "code", None) or lang or DEFAULT
     words = [w for w in text.replace("\n", " ").split(" ") if w]
     ipa = phonemize(
         words,
