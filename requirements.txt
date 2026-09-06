@@ -7,3 +7,4 @@ panphon
 numpy
 soundfile
 gradio
+edge-tts

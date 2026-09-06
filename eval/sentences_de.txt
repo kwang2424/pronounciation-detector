@@ -1,0 +1,103 @@
+# ~100 A1-B1 German sentences. Cover the phones in the design doc's section 6 error table.
+Ich möchte ein Bier.
+Wir gehen heute ins Kino.
+Das Wetter ist schön.
+Ich habe Hunger.
+Mein Bruder wohnt in Berlin.
+Kannst du mir bitte helfen?
+Der Zug kommt um zehn Uhr.
+Ich lerne seit einem Jahr Deutsch.
+Wo ist der Bahnhof?
+Sie trinkt jeden Morgen Kaffee.
+Das Buch liegt auf dem Tisch.
+Ich muss die Hausaufgaben machen.
+Er hat einen Hund und eine Katze.
+Heute ist ein schöner Tag.
+Die Kinder spielen im Garten.
+Ich bin müde und gehe ins Bett.
+Über den Fluss führt eine alte Brücke.
+Wir können morgen früh losfahren.
+Ich verstehe dich nicht.
+Die Straße ist heute gesperrt.
+Er treibt gern Sport.
+Mein Vater arbeitet in einer Bank.
+Wir haben nicht viel Zeit.
+Die Stadt ist sehr groß.
+Der Staat zahlt die Rente.
+Ich hätte gern eine Tasse Tee.
+Das Auto ist halb so teuer wie das andere.
+Sie singen im Chor.
+Das Pferd steht auf der Wiese.
+Die Hütte liegt am Waldrand.
+Bitte gib mir den Löffel.
+Ich habe ein neues Fahrrad gekauft.
+Heute Abend essen wir Fisch.
+Er kommt aus Österreich.
+Wie viel kostet das?
+Ich rufe dich später an.
+Das Zimmer ist zu klein.
+Wir treffen uns vor der Kirche.
+Ich möchte nach Hause gehen.
+Die Küche ist sauber.
+Sie hat rote Haare.
+Das Brot ist frisch.
+Der Lehrer erklärt die Grammatik.
+Ich habe meinen Schlüssel verloren.
+Wann fängt der Film an?
+Die Milch steht im Kühlschrank.
+Er spricht drei Sprachen.
+Das Mädchen lacht laut.
+Wir fahren im Sommer ans Meer.
+Ich mag keinen Käse.
+Die Nacht war sehr kalt.
+Mein Freund wohnt in München.
+Das Fenster ist offen.
+Ich suche eine Wohnung in der Nähe.
+Die Blumen blühen im Frühling.
+Er liest gern Zeitung.
+Das Wasser ist tief.
+Wir müssen den Zug nehmen.
+Ich koche heute Abend.
+Die Schule beginnt um acht.
+Sie wartet auf den Bus.
+Der König hat viele Söhne.
+Ich fühle mich nicht gut.
+Das Licht ist aus.
+Wir hören gern Musik.
+Ich weiß es nicht.
+Der Vogel fliegt hoch.
+Er ist noch jung.
+Die Tür ist zu.
+Ich glaube dir.
+Das Geld liegt in der Tasche.
+Wir spielen Fußball im Park.
+Die Suppe schmeckt gut.
+Ich sehe einen Zug.
+Der Weg ist lang.
+Sie zieht ihre Schuhe an.
+Ich brauche etwas Zucker.
+Wir wünschen dir alles Gute.
+Das Dorf liegt in den Bergen.
+Ich lese jeden Tag.
+Er zeigt mir die Stadt.
+Sie kauft zwölf Eier.
+Der Fisch schwimmt im Fluss.
+Ich wasche meine Hände.
+Das Haus hat einen Garten.
+Wir zählen bis zehn.
+Ich spreche mit meiner Mutter.
+Der Wind weht stark.
+Das Kind schläft schon.
+Ich bin heute sehr beschäftigt.
+Sie öffnet die Tür.
+Die Wolken sind grau.
+Wir besuchen unsere Großeltern.
+Ich lache über den Witz.
+Er kennt den Weg nach Köln.
+Die Nudeln sind fertig.
+Ich sitze am Fenster.
+Wir gehen zu Fuß.
+Das Feuer brennt.
+Ich freue mich auf das Wochenende.
+Die Leute warten auf den Bus.
+Heute gibt es Brot und Butter.

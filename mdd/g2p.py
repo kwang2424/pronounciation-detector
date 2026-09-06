@@ -1,21 +1,8 @@
 """Reference text -> canonical IPA via espeak-ng, for any profiled language."""
-import os
-import shutil
+from phonemizer import phonemize
+from phonemizer.separator import Separator
 
-# No system espeak-ng and no explicit library path: fall back to the DLL/.so
-# bundled in the `espeakng-loader` pip package (no admin install needed).
-if "PHONEMIZER_ESPEAK_LIBRARY" not in os.environ and shutil.which("espeak-ng") is None:
-    try:
-        import espeakng_loader
-        os.environ["PHONEMIZER_ESPEAK_LIBRARY"] = espeakng_loader.get_library_path()
-        os.environ.setdefault("ESPEAK_DATA_PATH", espeakng_loader.get_data_path())
-    except ImportError:
-        pass
-
-from phonemizer import phonemize  # noqa: E402
-from phonemizer.separator import Separator  # noqa: E402
-
-from .languages import DEFAULT  # noqa: E402
+from .languages import DEFAULT
 
 _SEP = Separator(phone="", word="|", syllable="")
 

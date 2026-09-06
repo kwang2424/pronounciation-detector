@@ -45,14 +45,25 @@ class PhoneRecognizer:
         logits = self.model(**inputs).logits[0]          # (T, V)
         return torch.log_softmax(logits, dim=-1).cpu()
 
-    def greedy_decode(self, logp: torch.Tensor) -> str:
+    def greedy_spikes(self, logp: torch.Tensor) -> list[tuple[str, float]]:
+        """Greedy CTC decode as (token, confidence) pairs, confidence being the highest
+        posterior probability the token reached in its run of frames."""
         ids = logp.argmax(-1).tolist()
         out, prev = [], None
-        for i in ids:
-            if i != prev and i != self.blank:
-                out.append(self.vocab[i])
+        for t, i in enumerate(ids):
+            if i == self.blank:
+                prev = None
+                continue
+            p = float(logp[t, i].exp())
+            if i == prev:
+                out[-1] = (out[-1][0], max(out[-1][1], p))
+            else:
+                out.append((self.vocab[i], p))
             prev = i
-        return "".join(out)
+        return out
+
+    def greedy_decode(self, logp: torch.Tensor) -> str:
+        return "".join(tok for tok, _ in self.greedy_spikes(logp))
 
     def gop(self, logp: torch.Tensor, canonical_tokens: list[str]) -> list[Segment]:
         """Force-align the canonical token sequence and compute a GOP score per token.

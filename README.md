@@ -7,7 +7,7 @@ Training-free pronunciation work for German, Danish and Korean, in two halves:
 - **Perception** — High Variability Phonetic Training. Identify a word from a
   minimal set, heard from a different synthetic talker each trial. Perceptual
   gains transfer to production (Bradlow et al. 1997), so this is the half worth
-  doing first.
+  doing first. See `perception-design.md`.
 
 ```bash
 pip install -r requirements.txt   # includes espeakng-loader, which bundles espeak-ng (no system install needed)
@@ -16,7 +16,8 @@ python app.py                     # web UI: both tabs plus a coverage report
 
 # production feedback
 python -m mdd.pipeline "Ich möchte ein Bier" rec.wav
-python -m mdd.pipeline "Jeg vil gerne have en øl" --lang da --ipa "jaj vil ɡɛɐ̯nə hæ en øl"
+python -m mdd.pipeline "Ich möchte ein Bier" --ipa "ɪk mɔktə aɪn biːɾ"   # text-only dry run
+python -m mdd.pipeline "mad gade" --lang da --ipa "mad ɡadə"
 
 # which contrasts can espeak actually render?
 python -m mdd.validate da
@@ -28,14 +29,14 @@ The perception tab needs no model at all.
 ## Languages
 
 Everything language-specific lives in `mdd/languages.py`: tokenizer rules, error
-tips, and the contrast inventory that drives perception training. The alignment,
-GOP and staircase code is language-neutral.
+tips, coda-r leniency, and the contrast inventory that drives perception
+training. The alignment, GOP and staircase code is language-neutral.
 
-| | espeak G2P | Perception training |
-|---|---|---|
-| German | reliable | 4 / 4 contrasts |
-| Danish | good segments, unreliable stød | 4 / 5 contrasts |
-| Korean | unreliable | disabled |
+| | espeak G2P | Perception training | Evaluated |
+|---|---|---|---|
+| German | reliable | 4 / 4 contrasts | yes, tiers 1-2 below |
+| Danish | good segments, unreliable stød | 4 / 5 contrasts | not yet |
+| Korean | unreliable | disabled | not yet |
 
 **Danish** is the best fit for this approach, because its difficulty is
 concentrated in exactly what the tool addresses: the soft d, a very dense vowel
@@ -52,16 +53,52 @@ instead of /silla/), and renders fortis stops as uvulars — audibly distinct, b
 not the Korean contrast, so training on it would build the wrong category.
 Korean needs a real G2P (g2pK or KoG2P) and recorded talkers.
 
+## Evaluation
+
+Two automated tiers from section 7 of the design doc (the third, real learner recordings, is manual):
+
+```bash
+python -m eval.native_control      # tier 1: native TTS voices, every flag is a false positive -> FPR per threshold
+python -m eval.synthetic_errors    # tier 2: inject each error from the catalogue via espeak phonemes -> recall + diagnosis
+```
+
+Reports land in `eval/results/*.md` (plus JSON). Synthesised audio and model outputs are cached under
+`eval/cache/`, so re-running a threshold sweep is instant. `--n 20` limits the sentence count for a quick pass;
+`--voices` picks TTS backends (`edge:<voice>` needs internet, `sapi:<voice>` is Windows-only, `espeak` is offline).
+
+### Current numbers (pipeline v3)
+
+Tier 1, 510 native clips from 5 natural voices (8830 phones), every flag a false positive:
+
+| τ | -2 | -1 (default) | 0 (gate off) |
+|---|---|---|---|
+| phone-level FPR | 1.6% | 2.6% | 4.3% |
+| sentences with ≥1 false flag | 24% | 33% | 49% |
+
+Tier 2, 157 errors injected into espeak phoneme strings: recall 64% at the default τ
+(61% at -2), exact diagnosis 50%. Reliable (≥85% recall):
+ü_long→uː, ü_short→ʊ, ö_long→oː, ö_short→ɔ, ach→k, ach→h, z→voiced_z, ei→iː, eu→uː. Weak: ich→sch (25%), final_t→d (0%), final_k→ɡ (0%), final_p→b (0%), long_a→short (0%), schwa→eː (38%). Final devoicing is not detectable
+with this recogniser at all: it hears a word-final voiced stop as its devoiced twin, the "bias toward canonical" risk
+from section 9 of the design doc. Vowel length alone is not flagged by default (`flag_length=True` to enable): the
+recogniser mis-hears native long vowels as short 37% of the time.
+
+The baseline before the eval-driven fixes (coda-r acceptance, ʏ/ɛː inventory mapping, insertion confidence gate)
+is kept in `eval/results/v1/`; `python -m eval.compare eval/results/v1 eval/results` prints the before/after.
+
+The thresholds and inventory mappings the eval produced (`GOP_THRESHOLD`,
+`INS_MIN_PROB`, the ʏ→y and ɛː→eː folds, coda-r acceptance) were tuned on
+**German only**. Danish and Korean inherit the machinery but not the calibration:
+the tiers above need re-running per language before their numbers mean anything.
+
 ## Honest limits
 
-- Stimuli are **formant-synthesised**, not recorded. The HVPT literature measured
-  its effects on natural multi-talker speech; synthetic voices are a usable
-  bootstrap, not a replication. `Talker` and `synthesize` in `mdd/synth.py` are
-  the only things a recorded-audio backend has to replace.
+- Perception stimuli are **formant-synthesised**, not recorded. The HVPT
+  literature measured its effects on natural multi-talker speech; synthetic
+  voices are a usable bootstrap, not a replication. `Talker` and `synthesize` in
+  `mdd/synth.py` are the only things a recorded-audio backend has to replace.
 - `mdd/validate.py` checks that a pair is rendered *distinctly*. It cannot check
   that it is rendered *correctly* — the Korean uvular case is exactly that gap,
   which is why `hvpt_ready` on the profile is a human judgement, not a computed one.
-- The GOP threshold is still uncalibrated (§7 of the design doc).
 - Whether the recogniser's CTC vocabulary covers the Danish-specific units
   (`ʔ`, `ð`, `ɐ̯`) is **unverified** — scoring falls back to the token's first
   character when one is missing, so treat Danish stød scores as unproven until

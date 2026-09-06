@@ -44,6 +44,11 @@ class LanguageProfile:
     #: Rhotics that all count as a correct realisation of the language's /r/.
     r_variants: frozenset[str] = frozenset()
     r_canonical: str = "ʁ"
+    #: Realisations of a *coda* r that count as native. espeak's G2P writes coda r
+    #: as a consonant, but speakers vocalise it; flagging that was the top false
+    #: positive on the German native-control eval. `None` means "dropped entirely".
+    #: Empty means no leniency — onset r is strict in every language.
+    coda_r_ok: frozenset[str | None] = frozenset()
     #: Recogniser/G2P spelling variants folded to one token.
     equiv: dict[str, str] = field(default_factory=dict)
     #: Diacritics stripped in addition to BASE_STRIP.
@@ -84,16 +89,24 @@ def _tips(spec: list[tuple[list[str], list[str], str]]) -> dict[tuple[str, str],
 GERMAN = LanguageProfile(
     code="de",
     name="German",
-    multi=("pf", "ts", "tʃ", "dʒ", "aɪ", "aʊ", "ɔʏ", "ɔɪ", "ɔy"),
+    multi=("pf", "ts", "tʃ", "dʒ", "aɪ", "aʊ", "ɔʏ", "ɔɪ", "ɔy", "ɔø"),
     r_variants=frozenset({"r", "ʀ", "ɾ", "ʁ"}),
     r_canonical="ʁ",
-    equiv={"ɐ̯": "ɐ", "ɛ̃": "ɛ", "ɑ": "a", "ɑː": "aː"},
+    coda_r_ok=frozenset({None, "ɐ", "ɜ", "ə", "a"}),
+    equiv={
+        "ɐ̯": "ɐ", "ɛ̃": "ɛ", "ɑ": "a", "ɑː": "aː",
+        "ɔø": "ɔʏ", "ɔy": "ɔʏ", "ɔɪ": "ɔʏ",   # espeak writes eu/äu as ɔø
+        "g": "ɡ",                              # ASCII g -> IPA ɡ (U+0261), used by espeak and panphon
+        # inventory mismatches found by the native-control eval: the recogniser never emits ʏ or ɛː
+        "ʏ": "y",                              # short ü: model says y for espeak's ʏ (100% false flags otherwise)
+        "ɛː": "eː",                            # long ä: merged with eː by the model (and by most speakers)
+    },
     # German has no phonemic glottal stop; it is automatic before initial vowels.
     strip=frozenset({"ʔ", "̯"}),
     example="Ich möchte ein Bier",
     g2p_caveat="Reliable. espeak-ng's German G2P matches Duden for ordinary vocabulary.",
     tips=_tips([
-        (["y", "yː", "ʏ"], ["u", "uː", "ʊ", "ju"],
+        (["y", "yː"], ["u", "uː", "ʊ", "ju"],
          "ü: say /i/ (as in 'see') and round your lips without moving your tongue."),
         (["ø", "øː", "œ"], ["o", "oː", "ɔ", "ɛ", "ɜ", "ɜː"],
          "ö: say /e/ (as in 'say') and round your lips."),
@@ -108,11 +121,11 @@ GERMAN = LanguageProfile(
         (["f"], ["v"], "German v is usually /f/: Vater = 'fahter'."),
         (["ʃ"], ["s"], "s before t/p at word start is 'sh': Straße = 'shtrahsse'."),
         (["t"], ["d"], "Final devoicing: a written d at the end of a word is said /t/ (Hund = 'hunt')."),
-        (["k"], ["g"], "Final devoicing: a written g at the end of a word is said /k/ (Tag = 'tahk')."),
+        (["k"], ["ɡ"], "Final devoicing: a written g at the end of a word is said /k/ (Tag = 'tahk')."),
         (["p"], ["b"], "Final devoicing: a written b at the end of a word is said /p/ (halb = 'halp')."),
         (["ə"], ["eː", "e", "ɛ", "aɪ"], "Unstressed final -e is a short schwa — never 'ay', never silent."),
         (["aɪ"], ["iː", "i"], "ei is pronounced 'eye'."),
-        (["ɔʏ", "ɔɪ"], ["juː", "u", "ɛʊ"], "eu/äu is pronounced 'oy'."),
+        (["ɔʏ"], ["juː", "u", "uː", "ɛʊ", "ɔ", "ʊ"], "eu/äu is pronounced 'oy'."),
         (["pf"], ["f", "p"], "pf is one sound: close the lips for p, release straight into f."),
     ]),
     contrasts=(
@@ -160,6 +173,9 @@ DANISH = LanguageProfile(
     # is a separate token rather than an r variant.
     r_variants=frozenset({"r", "ʀ", "ʁ"}),
     r_canonical="ʁ",
+    # Danish goes further than German: postvocalic r *is* the vowel [ɐ̯], so a
+    # vocalised realisation is the target, not a tolerated variant.
+    coda_r_ok=frozenset({None, "ɐ", "ɐ̯", "ə", "ɔ"}),
     equiv={
         # espeak's Danish voice emits GREEK SMALL LETTER EPSILON (U+03B5) for
         # what should be LATIN SMALL LETTER OPEN E (U+025B). panphon does not
