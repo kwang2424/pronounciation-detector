@@ -146,3 +146,61 @@ def test_practice_is_steered_by_lifetime_not_just_this_sitting(store):
 def test_save_is_a_no_op_without_a_store_or_without_trials(store):
     assert Session("da", seed=1).save() is None
     assert Session("da", seed=1, progress=store).save() is None
+
+
+# ------------------------------------------------------------------- acoustics
+def _signal(kind: str, sr: int = 22050):
+    """Synthetic words with known anatomy, to pin the classifier's boundaries."""
+    import numpy as np
+
+    t = np.linspace(0, 0.5, int(sr * 0.5), endpoint=False)
+    tone = np.sin(2 * np.pi * 150 * t)
+    if kind == "smooth":
+        return tone, sr
+    a, b = int(sr * 0.22), int(sr * 0.30)
+    if kind == "closure":
+        out = tone.copy()
+        out[a:b] = 0.0
+        return out, sr
+    # creak: sparse, irregularly spaced glottal pulses — quiet in RMS, but the
+    # pulses themselves stay well above zero. That is what separates it from a
+    # closure, and classifying on RMS alone gets it wrong.
+    rng = np.random.default_rng(0)
+    seg = np.zeros(b - a)
+    pos = 0.0
+    while pos < len(seg):
+        seg[int(pos)] = 1.0
+        pos += (sr / 40) * rng.uniform(0.5, 1.6)
+    seg = np.convolve(seg, np.hanning(120), mode="same")
+    out = tone.copy()
+    out[a:b] = 0.55 * seg / (abs(seg).max() or 1)
+    return out, sr
+
+
+@pytest.mark.parametrize("kind", ["smooth", "closure", "creak"])
+def test_anatomy_classifies_the_three_cases(kind):
+    from mdd.acoustics import analyse
+
+    assert analyse(*_signal(kind)).kind == kind
+
+
+def test_creak_is_not_mistaken_for_a_closure():
+    """Creak is quiet in RMS because its pulses are sparse. Judging on RMS alone
+    calls it a closure — the error that would wrongly clear a voice for stød."""
+    from mdd.acoustics import analyse
+
+    creak = analyse(*_signal("creak"))
+    closure = analyse(*_signal("closure"))
+    assert creak.dip_frac < 0.5, "creak really is quiet in RMS"
+    assert creak.dip_peak_frac > 0.1, "but its pulses remain"
+    assert closure.dip_peak_frac < 0.06, "a closure has nothing left"
+    assert creak.kind != closure.kind
+
+
+def test_compare_names_the_difference():
+    from mdd.acoustics import analyse, compare
+
+    smooth = analyse(*_signal("smooth"))
+    assert "no stød" in compare(smooth, analyse(*_signal("smooth")))
+    assert "SILENT GAP" in compare(smooth, analyse(*_signal("closure")))
+    assert "stød" in compare(smooth, analyse(*_signal("creak")))
