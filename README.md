@@ -50,6 +50,12 @@ stød is excluded from training rather than drilled with unanswerable trials. It
 is still diagnosed on the production side, where the learner's own audio is the
 evidence.
 
+Neural TTS does not rescue it either: measured over six minimal pairs, one Danish
+neural voice creaked on 9 of 12 words including three with no stød (creaky voice
+quality, not phonology) and the other creaked only on a *non*-stød word. Stød
+needs recorded native talkers; `python -m eval.tts_probe da --anatomy` is how that
+was established and how to re-test any new backend.
+
 Perception progress persists across sittings in `~/.mdd/progress.json` (set
 `$MDD_PROGRESS` to move it). The app saves after every answer, so closing the tab
 mid-session loses nothing, and practice is steered by *lifetime* accuracy with

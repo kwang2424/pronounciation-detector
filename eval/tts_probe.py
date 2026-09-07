@@ -30,6 +30,7 @@ import tempfile
 from pathlib import Path
 
 from mdd.acoustics import analyse as anatomise
+from mdd.acoustics import baseline as voice_baseline
 from mdd.acoustics import compare as compare_anatomy
 from mdd.languages import get
 from mdd.validate import SEPARATION_THRESHOLD, check_contrast
@@ -140,6 +141,7 @@ def main():
 
         contrasts = ([profile.contrast(args.contrast)] if args.contrast
                      else list(profile.contrasts))
+        per_voice: dict[str, list] = {v: [] for v in voices}
         for contrast in contrasts:
             print(f"## {contrast.label}")
             for group in contrast.pairs:
@@ -149,18 +151,35 @@ def main():
                         render(w, args.lang, voice)
                         safe = (voice if ":" in voice else f"edge:{voice}").replace(":", "-")
                         data, sr = sf.read(str(outdir / f"{args.lang}-{safe}-{w}.wav"))
-                        parts.append((w, anatomise(data, sr)))
-                    line = "  " + " | ".join(
+                        a = anatomise(data, sr)
+                        parts.append((w, a))
+                        per_voice[voice].append(a)
+                    print(f"  {voice}")
+                    print("    " + " | ".join(
                         f"{w}: {a.kind} (rms {a.dip_frac:.0%}, peak {a.dip_peak_frac:.2f}, "
-                        f"{a.duration:.2f}s)" for w, a in parts)
-                    print(f"{voice}")
-                    print(line)
+                        f"voiced {a.voiced_duration:.2f}s)" for w, a in parts))
                     if len(parts) == 2:
-                        print(f"  -> {compare_anatomy(parts[0][1], parts[1][1])}")
+                        print(f"    -> {compare_anatomy(parts[0][1], parts[1][1])}")
             print()
-        print("creak = phonation continues but goes irregular: stød.")
-        print("closure = a silent gap: a glottal stop, the wrong sound.")
-        print("smooth in both = the voice renders no stød distinction at all.")
+
+        # The per-pair lines above mean nothing until you know how creaky each
+        # voice is anyway. A voice that creaks on everything will "show stod" on
+        # whichever pairs it happens to land on.
+        print("=" * 70)
+        print("PER-VOICE BASELINE — read this before believing any line above")
+        print("=" * 70)
+        verdicts = []
+        for voice in voices:
+            b = voice_baseline(voice, per_voice[voice])
+            verdicts.append(b)
+            print(f"  {b.verdict()}")
+        print()
+        if not any(b.diagnostic for b in verdicts):
+            print("CONCLUSION: no voice here gives a usable stød signal. Keep the contrast")
+            print("gated; this needs recorded native talkers, not a better synthesiser.")
+        else:
+            print("Some voice may be diagnostic. Check its creak lands on the stød-bearing")
+            print("member of each pair, and listen before enabling anything.")
         print(f"\nClips in {outdir}")
         return
 

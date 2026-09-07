@@ -178,6 +178,10 @@ Both diagnosis and stimulus generation are untrustworthy. Fix is a real G2P
 
 ## 7. Honest limits
 
+- **Stød cannot be synthesised, only recorded.** Established twice over: espeak
+  can be forced to "distinguish" it but produces a glottal stop (silence, not
+  creak), and Danish neural TTS does not render it either (per-voice baselines
+  above). This is settled, not pending.
 - **Synthetic stimuli.** The HVPT literature measured its effects on natural
   multi-talker recordings. Formant synthesis gives talker variability cheaply but
   is spectrally thinner than real speech, and the reported effect sizes should
@@ -242,6 +246,30 @@ Validated against the two cases whose answer is already known: espeak's `hun` vs
 `h'?u?n` measures as "silent gap — glottal stop, not stød".
 
 `python -m eval.tts_probe da --anatomy` runs this over a backend's pairs.
+
+### Result: Danish neural TTS does not render stød
+
+Measured on `da-DK-ChristelNeural` and `da-DK-JeppeNeural` over six stød pairs:
+
+| voice | creak on | verdict |
+|---|---|---|
+| Christel | 9 of 12 words, incl. `læsser`, `mor`, `ven` (no stød) | creaky voice quality |
+| Jeppe | 1 of 12 — `bønner`, the *non*-stød member | no stød, and inverted |
+
+Read pair by pair, Christel appeared to render stød on three pairs. She does not;
+she creaks on three quarters of everything, so landing on the stød member
+sometimes is arithmetic, not phonology. **A per-word verdict is meaningless
+without the voice's own baseline**, exactly as a separation ratio is meaningless
+without a jitter floor — so `mdd.acoustics.baseline()` computes it and the probe
+prints it before any conclusion. A voice is diagnostic only when it creaks
+sometimes: never means it has no stød, always means it has creaky phonation.
+
+Stød therefore stays gated, and no synthesiser is going to lift it. It needs
+recorded native talkers.
+
+One incidental finding: the neural clips ran ~1.5s for monosyllables, which is
+mostly padding, so `Anatomy` reports `voiced_duration` separately — total
+duration describes the padding, not the word.
 
 ## 7b. Swapping the render backend
 
