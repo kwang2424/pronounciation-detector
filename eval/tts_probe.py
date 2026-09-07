@@ -29,6 +29,8 @@ import argparse
 import tempfile
 from pathlib import Path
 
+from mdd.acoustics import analyse as anatomise
+from mdd.acoustics import compare as compare_anatomy
 from mdd.languages import get
 from mdd.validate import SEPARATION_THRESHOLD, check_contrast
 
@@ -101,6 +103,9 @@ def main():
     ap.add_argument("--outdir", default=None, help="where to keep the clips (default: a temp dir)")
     ap.add_argument("--listen", action="store_true",
                     help="render the diagnostic words and print what to listen for")
+    ap.add_argument("--anatomy", action="store_true",
+                    help="measure what kind of difference each pair actually has: a creaky "
+                         "dip (stød), a silent gap (glottal stop), or none")
     args = ap.parse_args()
 
     profile = get(args.lang)
@@ -128,6 +133,35 @@ def main():
             print(f"   Ask:  {question}")
             print(f"   Then: {meaning}\n")
         print(f"All clips are in {outdir}")
+        return
+
+    if args.anatomy:
+        import soundfile as sf
+
+        contrasts = ([profile.contrast(args.contrast)] if args.contrast
+                     else list(profile.contrasts))
+        for contrast in contrasts:
+            print(f"## {contrast.label}")
+            for group in contrast.pairs:
+                for voice in voices:
+                    parts = []
+                    for w in group:
+                        render(w, args.lang, voice)
+                        safe = (voice if ":" in voice else f"edge:{voice}").replace(":", "-")
+                        data, sr = sf.read(str(outdir / f"{args.lang}-{safe}-{w}.wav"))
+                        parts.append((w, anatomise(data, sr)))
+                    line = "  " + " | ".join(
+                        f"{w}: {a.kind} (rms {a.dip_frac:.0%}, peak {a.dip_peak_frac:.2f}, "
+                        f"{a.duration:.2f}s)" for w, a in parts)
+                    print(f"{voice}")
+                    print(line)
+                    if len(parts) == 2:
+                        print(f"  -> {compare_anatomy(parts[0][1], parts[1][1])}")
+            print()
+        print("creak = phonation continues but goes irregular: stød.")
+        print("closure = a silent gap: a glottal stop, the wrong sound.")
+        print("smooth in both = the voice renders no stød distinction at all.")
+        print(f"\nClips in {outdir}")
         return
 
     contrasts = [profile.contrast(args.contrast)] if args.contrast else list(profile.contrasts)

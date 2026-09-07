@@ -216,6 +216,33 @@ bounding the file does not quietly shrink your history. A corrupt or
 future-versioned file is reported and treated as empty, and left on disk untouched
 rather than overwritten.
 
+## 7a2. Measuring what a "clipped" syllable actually is
+
+Listening does not settle stød. A native-ish rendering, a glottal stop and a
+plain short vowel all get described the same way by an untrained ear — "shorter",
+"cut off" — and a spectral separation ratio cannot separate them either. Real
+listening reports on Danish neural TTS came back exactly that ambiguous.
+
+`mdd/acoustics.py` measures the quietest interior moment of a word and reports
+two numbers plus a verdict:
+
+| | RMS at dip | peak amplitude at dip | verdict |
+|---|---|---|---|
+| stød | low | **stays well above zero** (pulses) | creak |
+| glottal stop | ~0 | ~0 | closure |
+| no stød | high | high | smooth |
+
+The discriminator is **peak amplitude, not RMS**. Creak is quiet in RMS precisely
+because its glottal pulses are sparse, so an RMS-only rule calls it a closure —
+which is the error that would wrongly clear a voice for stød training. Calibration
+on synthetic creak caught this; `test_creak_is_not_mistaken_for_a_closure` pins it.
+
+Validated against the two cases whose answer is already known: espeak's `hun` vs
+`hund` measures as "no stød distinction rendered", and the forced-glottal
+`h'?u?n` measures as "silent gap — glottal stop, not stød".
+
+`python -m eval.tts_probe da --anatomy` runs this over a backend's pairs.
+
 ## 7b. Swapping the render backend
 
 `mdd/validate.py` takes a `render` callable, so the same gate can be pointed at
