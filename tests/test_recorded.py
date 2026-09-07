@@ -1,11 +1,12 @@
 """Recorded native talkers as a stimulus source — the only route for stød."""
+import itertools
 import unicodedata
 
 import numpy as np
 import pytest
 import soundfile as sf
 
-from mdd.hvpt import Session
+from mdd.hvpt import PerceptionUnavailable, Session
 from mdd.languages import get
 from mdd.recorded import MIN_TALKERS, RecordedTalkers, coverage, wordlist
 
@@ -109,7 +110,7 @@ def test_talkers_rotate_over_real_speakers(library):
     session = Session("da", seed=3, recordings=RecordedTalkers(library, "da"))
     talkers = [session.next_trial().talker for _ in range(12)]
     assert set(talkers) <= set(RecordedTalkers(library, "da").talkers)
-    assert all(a != b for a, b in zip(talkers, talkers[1:]))
+    assert all(a != b for a, b in itertools.pairwise(talkers))
 
 
 def test_recorded_pairs_are_still_gated_on_their_own_audio(tmp_path):
@@ -120,7 +121,7 @@ def test_recorded_pairs_are_still_gated_on_their_own_audio(tmp_path):
         for talker in ("anna", "bo", "cecilie"):
             _write(tmp_path / "da" / talker / f"{word}.wav", seed=0)   # all identical
     session_words = RecordedTalkers(tmp_path, "da")
-    with pytest.raises(Exception):
+    with pytest.raises(PerceptionUnavailable):
         Session("da", seed=1, recordings=session_words)
 
 
