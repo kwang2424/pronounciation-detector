@@ -21,6 +21,10 @@ python -m mdd.pipeline "mad gade" --lang da --ipa "mad ɡadə"
 
 # perception progress is kept in ~/.mdd/progress.json ($MDD_PROGRESS to move it)
 
+# recorded native talkers — the only route for stød
+python -m mdd.recorded da --script              # word list to hand a speaker
+python -m mdd.recorded da --root ./recordings   # what those recordings cover
+
 # which contrasts can espeak actually render?
 python -m mdd.validate da
 python -m mdd.validate --no-audio          # fast, transcription check only
@@ -55,6 +59,15 @@ neural voice creaked on 9 of 12 words including three with no stød (creaky voic
 quality, not phonology) and the other creaked only on a *non*-stød word. Stød
 needs recorded native talkers; `python -m eval.tts_probe da --anatomy` is how that
 was established and how to re-test any new backend.
+
+`mdd/recorded.py` takes a directory of clips (`<root>/<lang>/<talker>/<word>.wav`)
+and makes it the stimulus source, which unblocks stød and improves every other
+contrast. It is 41 Danish words per speaker, roughly ten minutes each. Recordings
+are not trusted blindly — they go through the same gate, so a set where two words
+were recorded identically is still rejected. Prefer **citation form**: stød is
+reliably realised on an isolated stressed word and weakens when the word is
+unstressed in running speech, so clips excised from continuous audio are the
+least reliable source for the contrast that needs them most.
 
 Perception progress persists across sittings in `~/.mdd/progress.json` (set
 `$MDD_PROGRESS` to move it). The app saves after every answer, so closing the tab

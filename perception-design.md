@@ -289,11 +289,16 @@ a high separation ratio is a reason to *listen*, never to flip `hvpt_ready`.
 
 ## 8. Roadmap
 
-1. Recorded talkers, replacing synthesis. Note the shape needed is unusual: the
+1. ~~Recorded talkers, replacing synthesis.~~ The backend landed in
+   `mdd/recorded.py`; what remains is obtaining the audio. Note the shape needed
+   is unusual: the
    *same* small minimal-pair list from *many* talkers, which general ASR corpora
    do not contain — it is ~40 words x 8 speakers, about five minutes of audio,
    so the scarcity is shape and labelling, not volume. The HVPT literature
-   recorded its own stimuli for exactly this reason.
+   recorded its own stimuli for exactly this reason. Provenance matters as much
+   as quantity: citation form (isolated, stressed) is where stød is reliably
+   realised, so mined running speech is the weakest source for the one contrast
+   that has no alternative.
 2. Spaced scheduling on top of the persisted history: per-contrast intervals and
    due dates, so the app can say when a contrast is due rather than only which is
    weakest. (Persistence itself landed in `mdd/progress.py`.)
