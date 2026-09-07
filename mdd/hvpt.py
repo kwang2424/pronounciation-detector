@@ -56,6 +56,9 @@ class Trial:
 
     #: When set, the stimulus is a recording rather than synthesis.
     recordings: object | None = None
+    #: espeak's synthesiser name, which is not always the profile code (French is
+    #: "fr" here but "fr-fr" to the phonemiser). Defaults to `lang`.
+    voice: str = ""
 
     def audio(self):
         """(sample_rate, samples) for the stimulus."""
@@ -63,7 +66,7 @@ class Trial:
             return self.recordings.audio(self.target, str(self.talker))
         from . import synth
 
-        return synth.synthesize(self.target, self.lang, self.talker)
+        return synth.synthesize(self.target, self.voice or self.lang, self.talker)
 
     def render(self, path):
         if self.recordings is not None:
@@ -73,7 +76,7 @@ class Trial:
             return synth.write_wav(path, rate, samples)
         from . import synth
 
-        return synth.render_to_file(self.target, self.lang, path, self.talker)
+        return synth.render_to_file(self.target, self.voice or self.lang, path, self.talker)
 
 
 @dataclass
@@ -224,7 +227,7 @@ class Session:
         target = self.rng.choice(choices)
         self.rng.shuffle(choices)
         return Trial(contrast_id, target, tuple(choices), self._pick_talker(),
-                     self.profile.code, self.recordings)
+                     self.profile.code, self.recordings, self.profile.synth_voice)
 
     def _weakest_contrast(self) -> str:
         """Spend trials where lifetime accuracy is lowest, unpractised ones first.

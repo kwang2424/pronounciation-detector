@@ -165,6 +165,26 @@ r-colouring. Two normalisation fixes were needed:
 Stød is excluded from perception training but still diagnosed in production,
 where the learner's own audio is the evidence rather than espeak's.
 
+### French — works
+All five contrasts validate. Adding it surfaced two things worth knowing.
+
+espeak wants **two different names**: its phonemiser rejects `fr` and its
+synthesiser rejects `fr-fr`. `LanguageProfile` now carries `g2p_code` and `voice`,
+both defaulting to `code`, so only languages that need the split pay for it.
+
+More seriously, the combining tilde was in `BASE_STRIP` — inherited from the
+German tokeniser, where `ɛ̃` is only a recogniser artifact. In French nasality is
+phonemic, so that rule silently erased every nasal vowel: `paix` and `pain` both
+tokenised to `/pɛ/` and the validator called the pair identical. Same shape as the
+Danish stød bug, one level up: **a rule that is safe in one language sitting in
+the shared base.** Anything phonemic anywhere now belongs in a profile's own
+`strip`. German and Danish declare the tilde themselves and are unchanged.
+
+espeak also flags mid-utterance language switches inline (`dos` → `(en)dɒs(fr)`),
+which would tokenise into per-letter garbage; the tokeniser strips those markers.
+And it renders `jeûne`/`jeune` as a length difference rather than the ø/œ quality
+difference French has, so that pair is not used.
+
 ### Korean — not yet
 espeak's Korean G2P fails on the two things that matter most:
 

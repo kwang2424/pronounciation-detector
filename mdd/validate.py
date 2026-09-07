@@ -197,7 +197,8 @@ def check_contrast(contrast: Contrast, profile: LanguageProfile,
             distinct = tokenize(ia, profile) != tokenize(ib, profile)
             # Measured even when the transcription already differs: a pair can
             # transcribe distinctly and still render as the same audio.
-            sep = (acoustic_separation(a, b, profile.code, render=render, talkers=talkers)
+            sep = (acoustic_separation(a, b, profile.synth_voice,
+                                       render=render, talkers=talkers)
                    if audio else None)
             checks.append(PairCheck(a, b, ia, ib, distinct, sep,
                                     transcription_authoritative=render is None))

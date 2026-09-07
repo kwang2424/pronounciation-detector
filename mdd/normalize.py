@@ -6,9 +6,15 @@ removed. Which marks survive is language-specific: German strips the glottal
 stop (predictable before initial vowels), Danish keeps it because that is how
 espeak spells stød, which is phonemic there.
 """
+import re
 import unicodedata
 
 from .languages import LanguageProfile, get
+
+#: espeak marks a mid-utterance language switch inline, e.g. "dos" in French
+#: comes back as "(en)dɒs(fr)". Parentheses never occur in IPA, so stripping the
+#: markers is safe, and leaving them in would tokenise into per-letter garbage.
+_LANG_SWITCH = re.compile(r"\([a-z]{2}(?:-[a-z]{2,})?\)")
 
 SYLLABIC = "̩"
 
@@ -20,6 +26,7 @@ def tokenize(ipa: str, profile: LanguageProfile | str | None = None) -> list[str
     # Longest-first so "ɑw" wins over "ɑ", and "tɕh" over "tɕ".
     multi = sorted(profile.multi, key=len, reverse=True)
 
+    ipa = _LANG_SWITCH.sub("", ipa)
     s = unicodedata.normalize("NFD", ipa)
     s = "".join(ch for ch in s if ch not in strip)
     toks: list[str] = []

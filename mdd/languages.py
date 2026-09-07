@@ -14,8 +14,12 @@ that assumption so other L1s can be added without rewriting the tables.
 """
 from dataclasses import dataclass, field
 
-# Marks that carry no contrast anywhere and are always removed.
-BASE_STRIP = frozenset({"ˈ", "ˌ", "͡", "‿", ".", " ", "|", "̃", "?"})
+# Marks that carry no contrast in ANY language and are always removed. Anything
+# that is phonemic somewhere belongs in a profile's own `strip` instead: the
+# combining tilde lived here once, inherited from the German tokeniser where ɛ̃ is
+# only a recogniser artifact, and it silently erased every French nasal vowel —
+# paix and pain both came out /pɛ/.
+BASE_STRIP = frozenset({"ˈ", "ˌ", "͡", "‿", ".", " ", "|", "?"})
 
 
 @dataclass(frozen=True)
@@ -39,6 +43,12 @@ class Contrast:
 class LanguageProfile:
     code: str
     name: str
+    #: espeak's two entry points do not always agree on a language's name. Its
+    #: phonemizer wants "fr-fr" for French while its synthesiser only accepts
+    #: "fr"; for German, Danish and Korean one name serves both. Both default to
+    #: `code`, so only the languages that need the split carry it.
+    g2p_code: str = ""
+    voice: str = ""
     #: Multi-character tokens (diphthongs, affricates) kept whole by the tokenizer.
     multi: tuple[str, ...] = ()
     #: Rhotics that all count as a correct realisation of the language's /r/.
@@ -66,6 +76,14 @@ class LanguageProfile:
     hvpt_ready: bool = True
     hvpt_caveat: str = ""
     example: str = ""
+
+    @property
+    def phonemizer_language(self) -> str:
+        return self.g2p_code or self.code
+
+    @property
+    def synth_voice(self) -> str:
+        return self.voice or self.code
 
     def strip_set(self) -> frozenset[str]:
         return BASE_STRIP | self.strip
@@ -101,8 +119,9 @@ GERMAN = LanguageProfile(
         "ʏ": "y",                              # short ü: model says y for espeak's ʏ (100% false flags otherwise)
         "ɛː": "eː",                            # long ä: merged with eː by the model (and by most speakers)
     },
-    # German has no phonemic glottal stop; it is automatic before initial vowels.
-    strip=frozenset({"ʔ", "̯"}),
+    # German has no phonemic glottal stop (it is automatic before initial vowels)
+    # and no nasal vowels — the recogniser's ɛ̃ is an artifact.
+    strip=frozenset({"ʔ", "̯", "̃"}),
     example="Ich möchte ein Bier",
     g2p_caveat="Reliable. espeak-ng's German G2P matches Duden for ordinary vocabulary.",
     tips=_tips([
@@ -185,7 +204,7 @@ DANISH = LanguageProfile(
         "ɒ": "ɔ",
     },
     # NOTE: ʔ is *not* stripped for Danish — it is how espeak spells stød.
-    strip=frozenset(),
+    strip=frozenset({"̃"}),
     example="Jeg vil gerne have en øl",
     g2p_caveat=(
         "Segments are good; suprasegmentals are not. espeak-ng renders the soft d, "
@@ -283,7 +302,7 @@ KOREAN = LanguageProfile(
     r_variants=frozenset({"ɾ", "r", "l", "ɫ"}),
     r_canonical="ɾ",
     equiv={"ɐ": "a", "ɫ": "l", "q": "k", "ʌ": "ʌ"},
-    strip=frozenset({"ʔ"}),
+    strip=frozenset({"ʔ", "̃"}),
     example="안녕하세요",
     hvpt_ready=False,
     hvpt_caveat=(
@@ -343,7 +362,115 @@ KOREAN = LanguageProfile(
     ),
 )
 
-PROFILES: dict[str, LanguageProfile] = {p.code: p for p in (GERMAN, DANISH, KOREAN)}
+FRENCH = LanguageProfile(
+    code="fr",
+    name="French",
+    g2p_code="fr-fr",      # the phonemiser rejects "fr"
+    voice="fr",            # the synthesiser rejects "fr-fr"
+    multi=("ɑ̃", "ɛ̃", "ɔ̃", "œ̃", "wa", "wɛ̃", "ɥi", "tʃ", "dʒ"),
+    r_variants=frozenset({"r", "ʀ", "ʁ", "ɾ"}),
+    r_canonical="ʁ",
+    equiv={
+        "ɒ": "ɔ",        # espeak occasionally emits the English open-back vowel
+        "a": "a", "ɑ": "a",
+        "œ̃": "ɛ̃",       # brun/brin merger: standard in most of France today
+    },
+    # French has no phonemic glottal stop; length is not phonemic either, but
+    # espeak marks it on some words (côte -> koːt), so length marks are kept as
+    # part of the token and simply never contrast.
+    strip=frozenset({"ʔ"}),
+    example="Je voudrais une bière",
+    g2p_caveat=(
+        "Good. Nasal vowels, the front rounded series and the mid-vowel splits all "
+        "come through. Two quirks: espeak switches language on a few words that look "
+        "English (dos -> '(en)dɒs(fr)', stripped by the tokeniser), and it renders "
+        "jeûne/jeune as a length difference (ʒøːn/ʒøn) rather than the ø/œ quality "
+        "difference French actually has — so that pair is not used."
+    ),
+    tips=_tips([
+        (["y"], ["u", "uː", "ʊ", "ju", "juː"],
+         "u (as in tu): say 'ee' and round your lips without moving your tongue. "
+         "It is not 'oo' — that is the spelling ou."),
+        (["u"], ["y", "ʊ", "ʌ"],
+         "ou is a true 'oo' with the tongue pulled back — keep it distinct from u."),
+        (["ø", "œ"], ["o", "ɔ", "ɜ", "ɜː", "ʌ"],
+         "eu: say 'ay' and round your lips. Not the English 'uh'."),
+        (["ɑ̃"], ["a", "ɑ", "an", "ɔ̃", "ʌn"],
+         "an/en is one nasal vowel — air through the nose, and no [n] at the end."),
+        (["ɛ̃"], ["ɛ", "ɛn", "an", "æn"],
+         "in/ain is one nasal vowel — no [n] consonant after it."),
+        (["ɔ̃"], ["ɔ", "ɔn", "on", "ɑ̃"],
+         "on is one nasal vowel, rounder and higher than an — no [n] at the end."),
+        (["e"], ["ɛ", "eɪ"],
+         "é is close and pure — no glide toward 'ay'."),
+        (["ɛ"], ["e", "eɪ"],
+         "è/ai is open — jaw lower than for é."),
+        (["o"], ["ɔ", "oʊ"],
+         "This o is close and pure (saute, beau) — no glide."),
+        (["ɔ"], ["o", "oʊ", "ɑ"],
+         "This o is open (sotte, pomme) — jaw lower, lips less rounded."),
+        (["ʁ"], ["ɹ", "r"],
+         "French r is uvular — friction at the very back of the throat, tongue tip down."),
+        (["ʒ"], ["dʒ", "z"],
+         "j/ge is a soft 'zh' as in 'measure' — never the hard English 'j'."),
+        (["ʃ"], ["tʃ"],
+         "ch is 'sh', never the English 'ch'."),
+        (["p", "t", "k"], ["ph", "th", "kh"],
+         "French p/t/k are unaspirated — no puff of air. Hold the sound back."),
+    ]),
+    contrasts=(
+        Contrast(
+            id="u-vs-ou",
+            label="u /y/ vs ou /u/",
+            phones=("y", "u"),
+            pairs=(("tu", "tout"), ("rue", "roue"), ("pu", "pou"),
+                   ("bu", "boue"), ("vu", "vous")),
+            tip="/y/ is 'ee' with rounded lips; /u/ is a back 'oo'. The tongue moves, "
+                "not just the lips.",
+            why="English has no front rounded vowel, so /y/ is assimilated to /u/ — "
+                "the single most persistent French perception problem for English speakers.",
+        ),
+        Contrast(
+            id="nasal-vowels",
+            label="The three nasal vowels an / in / on",
+            phones=("ɑ̃", "ɛ̃", "ɔ̃"),
+            pairs=(("sans", "sain", "son"), ("banc", "bain", "bon"),
+                   ("vent", "vin", "vont"), ("lent", "lin", "long")),
+            tip="Three distinct nasal vowels, differing in tongue height and rounding. "
+                "None of them ends in an [n].",
+            why="English has no phonemic nasal vowels; learners hear a vowel plus /n/ "
+                "and merge the three into one or two categories.",
+        ),
+        Contrast(
+            id="nasal-vs-oral",
+            label="Nasal vs oral vowel",
+            phones=("ɛ̃", "ɛ", "ɔ̃", "o"),
+            pairs=(("paix", "pain"), ("fait", "faim"), ("beau", "bon"), ("sait", "saint")),
+            tip="The nasal member sends air through the nose from the start of the vowel; "
+                "the oral one does not. Neither has a consonant after it.",
+            why="Without a nasal-vowel category, learners either miss the contrast or "
+                "insert an [n] that French does not have.",
+        ),
+        Contrast(
+            id="mid-vowels",
+            label="Close /o/ vs open /ɔ/",
+            phones=("o", "ɔ"),
+            pairs=(("saute", "sotte"), ("paume", "pomme"), ("côte", "cotte"), ("haute", "hotte")),
+            tip="Close /o/ has rounded, tense lips; open /ɔ/ drops the jaw and slackens them.",
+            why="English 'o' is a diphthong, so both French vowels are heard as one gliding sound.",
+        ),
+        Contrast(
+            id="e-vs-e-grave",
+            label="é /e/ vs è /ɛ/",
+            phones=("e", "ɛ"),
+            pairs=(("les", "lait"), ("thé", "taie"), ("fée", "fait"), ("ces", "sait")),
+            tip="é is close and pure; è is open. Neither glides the way English 'ay' does.",
+            why="Both land inside the English /eɪ/ category, and the glide masks the difference.",
+        ),
+    ),
+)
+
+PROFILES: dict[str, LanguageProfile] = {p.code: p for p in (GERMAN, DANISH, KOREAN, FRENCH)}
 DEFAULT = "de"
 
 

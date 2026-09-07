@@ -42,8 +42,15 @@ training. The alignment, GOP and staircase code is language-neutral.
 | | espeak G2P | Perception training | Evaluated |
 |---|---|---|---|
 | German | reliable | 4 / 4 contrasts | yes, tiers 1-2 below |
+| French | reliable | 5 / 5 contrasts | not yet |
 | Danish | good segments, unreliable stød | 4 / 5 contrasts | not yet |
 | Korean | unreliable | disabled | not yet |
+
+**French** trains the five contrasts that matter most for English speakers: /y/ vs
+/u/ (tu/tout), the three nasal vowels (sans/sain/son), nasal vs oral (paix/pain),
+close vs open mid vowels (saute/sotte), and é vs è (les/lait). espeak needs two
+different names for it — `fr-fr` to phonemise, `fr` to synthesise — which the
+profile carries as `g2p_code` and `voice`.
 
 **Danish** is the best fit for this approach, because its difficulty is
 concentrated in exactly what the tool addresses: the soft d, a very dense vowel
