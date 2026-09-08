@@ -27,14 +27,35 @@ def test_unevaluated_languages_say_unknown_rather_than_guessing():
     assert "not yet evaluated" in reliability("y", "fr", "u").note()
 
 
-def test_blind_spots_are_reported_from_the_synthetic_eval():
-    """Their absence from a report means nothing: German final devoicing and
-    vowel-length errors are caught 0% of the time however wrong the speaker is,
-    so a clean report is not evidence they were right."""
-    spots = blind_spots("de")
-    assert "final_t→d" in spots and spots["final_t→d"] == 0.0
-    assert "final_k→ɡ" in spots
-    assert "long_a→short" in spots
+def test_zero_recall_is_not_claimed_as_blindness_without_evidence():
+    """Low recall only means the recogniser is blind if the error was actually in
+    the audio. espeak does not render final devoicing — final_k→ɡ separates at
+    0.93x against a jitter floor, final_t→d at 1.01x, final_p→b at 0.99x — so
+    those rows measured the test material, not the recogniser. Claiming them told
+    a learner their pronunciation was unverifiable when it was merely untested.
+    Rows predating the audibility check are withheld rather than guessed at."""
+    assert blind_spots("de") == {}, "committed results have no `rendered` field yet"
+
+
+def test_a_verified_blind_spot_is_reported(tmp_path, monkeypatch):
+    """Once audibility is measured, a genuine blind spot must still surface —
+    long_a→short renders at 7.91x and really is undetectable."""
+    import mdd.reliability as rel
+
+    results = tmp_path / "results" / "xx"
+    results.mkdir(parents=True)
+    (results / "synthetic_errors.json").write_text(json.dumps({"rows": [
+        {"name": "long_a→short", "recall": {"-2.0": 0.0}, "rendered": 7.91},
+        {"name": "final_k→ɡ", "recall": {"-2.0": 0.0}, "rendered": 0.93},
+        {"name": "ü_long→uː", "recall": {"-2.0": 0.875}, "rendered": 2.71},
+    ]}), encoding="utf-8")
+    monkeypatch.setattr(rel, "RESULTS", tmp_path / "results")
+    rel.blind_spots.cache_clear()
+    try:
+        spots = rel.blind_spots("xx")
+        assert spots == {"long_a→short": 0.0}, "audible-and-missed only"
+    finally:
+        rel.blind_spots.cache_clear()
 
 
 def test_no_blind_spots_claimed_for_an_unevaluated_language():
@@ -69,7 +90,8 @@ def test_the_report_surfaces_both_caveats():
     summary, _, rows, _ = app.run("German", "du bist gut genug", None,
                                   "t u p e s t ɡ u k e n u", -1.0)
     assert "weigh those rows less" in summary
-    assert "not evidence these were right" in summary
+    assert "not evidence these were right" not in summary, \
+        "no blind spot may be claimed while none is verified"
     levels = {r[3] for r in rows}
     assert "noisy" in levels and "solid" in levels
 

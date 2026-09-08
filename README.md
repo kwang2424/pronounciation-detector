@@ -120,7 +120,8 @@ Tier 1, 510 native clips from 5 natural voices (8830 phones), every flag a false
 | phone-level FPR | 1.6% | 2.6% | 4.3% |
 | sentences with ≥1 false flag | 24% | 33% | 49% |
 
-Tier 2, 157 errors injected into espeak phoneme strings: recall 64% at the default τ
+Tier 2, 157 errors injected into espeak phoneme strings (**note**: rows whose
+injection espeak does not render are untestable, see below): recall 64% at the default τ
 (61% at -2), exact diagnosis 50%. Reliable (≥85% recall):
 ü_long→uː, ü_short→ʊ, ö_long→oː, ö_short→ɔ, ach→k, ach→h, z→voiced_z, ei→iː, eu→uː. Weak: ich→sch (25%), final_t→d (0%), final_k→ɡ (0%), final_p→b (0%), long_a→short (0%), schwa→eː (38%). Final devoicing is not detectable
 with this recogniser at all: it hears a word-final voiced stop as its devoiced twin, the "bias toward canonical" risk
@@ -221,11 +222,19 @@ confidence read from the committed evaluation results (`mdd/reliability.py`):
 - **fair** / **solid** — progressively less likely to be the recogniser's own error.
 - **unknown** — that language has not been evaluated yet, stated rather than guessed.
 
-It also names the **blind spots**, because their absence from a report means
-nothing. At the default threshold German final devoicing (`final_t→d`,
-`final_k→ɡ`, `final_p→b`) and vowel length (`long_a→short`) are caught **0%** of
-the time however wrong the speaker is. A clean report is not evidence those were
-right.
+It also names genuine **blind spots**, where absence from a report means nothing
+— but only once they are shown to be blind spots. Tier 2 injects errors into
+espeak phoneme strings, and an injection espeak does not render produces
+identical audio, so the pipeline scores 0% recall on an error that is not in the
+signal. Measured: `final_k→ɡ` separates at **0.93x** against synthesis jitter,
+`final_t→d` at 1.01x and `final_p→b` at 0.99x — all silent, so three of the four
+"undetectable" rows were **untestable, not undetectable**. `long_a→short`
+separates at 7.91x and is a real blind spot.
+
+`eval/synthetic_errors.py` now measures this per row and reports `n/a ⚠️ not
+rendered` instead of a recall figure, and the app withholds any blind-spot claim
+that predates the measurement rather than repeating one that may be an
+artifact.
 
 ## Honest limits
 

@@ -114,8 +114,19 @@ def blind_spots(lang: str) -> dict[str, float]:
     out = {}
     for row in data.get("rows", []):
         recall = (row.get("recall") or {}).get("-2.0")
-        if recall is not None and recall <= BLIND_RECALL:
-            out[row.get("name", "?")] = recall
+        if recall is None or recall > BLIND_RECALL:
+            continue
+        # Low recall only means the recogniser is blind if the injected error was
+        # actually in the audio. espeak does not render final devoicing at all —
+        # final_k->ɡ separates at 0.93x against a jitter floor — so those rows
+        # measured the test material, not the recogniser, and claiming them as
+        # blind spots told a learner their pronunciation was unverifiable when it
+        # simply had not been tested. Rows from a run predating this measurement
+        # carry no `rendered` field and are withheld rather than guessed at.
+        rendered = row.get("rendered")
+        if rendered is None or rendered < 1.35:
+            continue
+        out[row.get("name", "?")] = recall
     return out
 
 

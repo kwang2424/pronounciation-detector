@@ -19,6 +19,8 @@ from mdd.normalize import tokenize  # noqa: E402
 
 from .common import CACHE, THRESHOLDS, analyse_cached, canonical_tokens_by_word, fmt_pct, is_flagged, key, load_sentences, write_results  # noqa: E402
 from .errors import CATALOG, MNEMONIC, ErrorType  # noqa: E402
+from mdd.validate import SEPARATION_THRESHOLD  # noqa: E402
+
 from .tts import Espeak, PhonemeGrid  # noqa: E402
 
 REPORT_TAUS = [-6.0, -4.0, -2.0, -1.0, 0.0]
@@ -125,13 +127,48 @@ def run(esp: Espeak, grids, per_type: int) -> dict:
             rep = analyse_cached(text, inj, inj.with_suffix(".json"))
             ctl_rep = analyse_cached(text, ctl, ctl.with_suffix(".json"))
             case = evaluate(err, rep, ctl_rep, j)
-            case.update({"text": text, "word": pw[wi][0]})
+            case.update({"text": text, "word": pw[wi][0],
+                         "rendered": _rendered(ctl, inj)})
             entry["cases"].append(case)
         results[err.name] = entry
         n = len(entry["cases"])
         print(f"{err.name:18} n={n:2}  recall@-2={fmt_pct(_recall(entry, -2.0)) if n else 'n/a':>6}  "
               f"diag={fmt_pct(_diag(entry)) if n else 'n/a':>6}  {entry.get('error', '')}", flush=True)
     return results
+
+
+def _rendered(control_wav, injected_wav) -> float | None:
+    """How far the injected audio differs from the control, against synthesis jitter.
+
+    An injection espeak does not actually render produces identical audio, and the
+    pipeline then scores 0% recall on an error that is not in the signal — a
+    limit of the test material reported as a limit of the recogniser. Measured:
+    final_k->ɡ separates at 0.93x, final_t->d at 1.01x, final_p->b at 0.99x, all
+    at the jitter floor, while long_a->short reaches 7.91x and is a real blind
+    spot. Three of the four "undetectable" rows were untestable, not undetectable.
+    """
+    import soundfile as sf
+
+    from mdd.validate import _distance, _spectrum
+
+    try:
+        a, _ = sf.read(str(control_wav))
+        b, _ = sf.read(str(injected_wav))
+    except Exception:
+        return None
+    sa = _spectrum([int(v * 32768) for v in a])
+    sb = _spectrum([int(v * 32768) for v in b])
+    if sa is None or sb is None:
+        return None
+    # Same-file distance is zero for espeak's cached output, so compare against a
+    # small absolute floor on the unit-normalised scale, as mdd.validate does.
+    from mdd.validate import MIN_FLOOR
+    return float(_distance(sa, sb) / MIN_FLOOR)
+
+
+def _rendered_ratio(entry) -> float | None:
+    vals = [c["rendered"] for c in entry["cases"] if c.get("rendered") is not None]
+    return sum(vals) / len(vals) if vals else None
 
 
 def _recall(entry, tau):
@@ -159,6 +196,9 @@ def summarise(results: dict) -> dict:
             "diag_acc": _diag(e),
             "control_fp": {str(t): _control_fp(e, t) for t in THRESHOLDS},
             "heard_as": Counter(c["heard"] for c in cs).most_common(3),
+            # Whether espeak rendered the injection at all. A row with a low
+            # value has an untestable error, not an undetectable one.
+            "rendered": _rendered_ratio(e),
             "error": e.get("error"), "note": e["note"],
         })
     all_cases = [c for e in results.values() for c in e["cases"]]
@@ -184,7 +224,12 @@ def markdown(summary: dict, skipped) -> str:
             L.append(f"| {r['name']} | 0 | " + " | ".join("–" for _ in REPORT_TAUS) + f" | – | – | _{r['error']}_ |")
             continue
         heard = ", ".join(f"{h} ×{n}" for h, n in r["heard_as"])
-        L.append(f"| {r['name']} | {r['n']} | " + " | ".join(fmt_pct(r["recall"][str(t)]) for t in REPORT_TAUS)
+        rendered = r.get("rendered")
+        untestable = rendered is not None and rendered < SEPARATION_THRESHOLD
+        cells = ("n/a " * len(REPORT_TAUS)).split() if untestable else [
+            fmt_pct(r["recall"][str(t)]) for t in REPORT_TAUS]
+        note = " ⚠️ not rendered" if untestable else ""
+        L.append(f"| {r['name']}{note} | {r['n']} | " + " | ".join(cells)
                  + f" | {fmt_pct(r['diag_acc'])} | {fmt_pct(r['control_fp']['-2.0'])} | {heard} |")
     o = summary["overall"]
     L.append(f"| **all** | {o['n']} | " + " | ".join(fmt_pct(o["recall"][str(t)]) for t in REPORT_TAUS)
