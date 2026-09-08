@@ -108,3 +108,90 @@ def test_preflight_handles_a_language_with_no_sentences():
 
     with pytest.raises(FileNotFoundError):
         check_transcription("ko")
+
+
+# ------------------------------------------------------- liaison / sandhi
+def test_french_liaison_survives_phonemisation():
+    """Per-word, `les amis` is `le ami` and the recogniser hears a /z/ nobody
+    predicted — liaison was the largest false-positive category in the French
+    native control (z x30, t x19)."""
+    from mdd.g2p import text_to_ipa_words
+
+    ipa = dict(text_to_ipa_words("les amis vous avez", "fr-fr"))
+    assert ipa["les"].endswith("z"), "liaison /z/ must reach the canonical form"
+    assert ipa["vous"].endswith("z")
+
+
+def test_lone_letters_are_not_read_as_letter_names():
+    """espeak reads a standalone 'y' as 'i grec' when phonemising it alone."""
+    from mdd.g2p import text_to_ipa_words
+
+    ipa = dict(text_to_ipa_words("Il y a beaucoup", "fr-fr"))
+    assert ipa["y"] == "i"
+
+
+def test_punctuation_tokens_do_not_break_alignment():
+    """French typography spaces punctuation off ('soir ?'); counting it as a word
+    caused a spurious mismatch that sent the sentence down the per-word path."""
+    from mdd import g2p
+
+    g2p.last_fallbacks.clear()
+    ipa = dict(g2p.text_to_ipa_words("Tu as vu le film hier soir ?", "fr-fr"))
+    assert "?" not in ipa
+    assert g2p.last_fallbacks == [], "should not have fallen back"
+
+
+def test_german_is_unchanged_by_sentence_level_phonemisation():
+    """Across the evaluation sentences both routes agree token for token."""
+    from mdd.g2p import text_to_ipa_words
+    from mdd.normalize import tokenize
+
+    for text in load_sentences(20, "de"):
+        for word, ipa in text_to_ipa_words(text, "de"):
+            assert word and tokenize(ipa, "de")
+
+
+def test_word_count_mismatch_falls_back_and_is_recorded():
+    from mdd import g2p
+
+    g2p.last_fallbacks.clear()
+    for text in load_sentences(lang="fr"):
+        g2p.text_to_ipa_words(text, "fr-fr")
+    # A fallback is safe (it only loses sandhi for that text) but should be rare.
+    assert len(g2p.last_fallbacks) <= 3
+
+
+# ------------------------------------------------------- voices / threshold
+def test_french_voices_are_metropolitan_only():
+    """The canonical transcription is espeak's fr-fr. A Quebec voice differs
+    systematically and measures as pipeline error when it is dialect difference."""
+    assert not any("fr-CA" in v for v in default_voices("fr"))
+
+
+def test_median_voice_threshold_ignores_one_bad_talker():
+    """Pooling assumes comparable voices. In the French run disagreement ranged
+    8.5%-47.1%, and the worst voice alone pushed the pooled rate past target at
+    every threshold, recommending -8 — a setting that flags almost nothing."""
+    from eval.native_control import recommend_robust
+
+    def voice(rate, dis):
+        return {"fpr": {str(t): rate for t in
+                        (-8.0, -6.0, -4.0, -3.0, -2.0, -1.5, -1.0, -0.5, 0.0)},
+                "disagreement_rate": dis}
+
+    voices = {"edge:a": voice(0.03, 0.09), "edge:b": voice(0.04, 0.085),
+              "edge:c": voice(0.30, 0.47)}
+    tau, detail = recommend_robust(voices)
+    assert tau == 0.0, "the median voice is well under target at every threshold"
+    assert detail["disagreement"]["edge:c"] == 0.47
+
+
+def test_espeak_is_excluded_from_the_median_too():
+    from eval.native_control import recommend_robust
+
+    fpr = {str(t): 0.02 for t in (-8.0, -6.0, -4.0, -3.0, -2.0, -1.5, -1.0, -0.5, 0.0)}
+    _, detail = recommend_robust({
+        "edge:a": {"fpr": fpr, "disagreement_rate": 0.09},
+        "espeak:fr": {"fpr": fpr, "disagreement_rate": 0.51},
+    })
+    assert "espeak:fr" not in detail["disagreement"]

@@ -73,6 +73,30 @@ def recommend(res: dict) -> float | None:
     return max(ok) if ok else None
 
 
+def recommend_robust(per_voice: dict[str, dict]) -> tuple[float | None, dict]:
+    """Threshold from the MEDIAN voice, not the pooled total.
+
+    Pooling assumes the voices are comparable. In the French run they were not:
+    disagreement ranged from 8.5% to 47.1%, and the worst voice alone dragged the
+    pooled rate past the target at every threshold, recommending -8 — a setting
+    at which almost nothing is ever flagged. The median voice is unmoved by one
+    bad talker, and the spread is reported so a bad one is visible rather than
+    silently averaged in.
+    """
+    natural = {v: r for v, r in per_voice.items() if not v.startswith("espeak")}
+    if not natural:
+        return None, {}
+    medians = {}
+    for tau in THRESHOLDS:
+        rates = sorted(r["fpr"][str(tau)] for r in natural.values())
+        mid = len(rates) // 2
+        medians[str(tau)] = (rates[mid] if len(rates) % 2
+                             else (rates[mid - 1] + rates[mid]) / 2)
+    ok = [t for t in THRESHOLDS if medians[str(t)] < FPR_TARGET]
+    spread = {v: r["disagreement_rate"] for v, r in natural.items()}
+    return (max(ok) if ok else None), {"median_fpr": medians, "disagreement": spread}
+
+
 def markdown(summary: dict) -> str:
     voices = list(summary["voices"])
     L = ["# Native negative control", "",
@@ -98,11 +122,29 @@ def markdown(summary: dict) -> str:
     for v in voices:
         L.append(f"| {v} | {fmt_pct(summary['voices'][v]['disagreement_rate'])} |")
     rec = summary["recommended_tau"]
+    med = summary.get("recommended_tau_median_voice")
+    detail = summary.get("median_voice") or {}
     L += ["", "## Recommended threshold", "",
           (f"Largest τ with natural-voice FPR below {FPR_TARGET:.0%}: **τ = {rec:g}** "
            f"(FPR {fmt_pct(summary['natural']['fpr'][str(rec)])})." if rec is not None
-           else f"No threshold in the sweep keeps natural-voice FPR below {FPR_TARGET:.0%}."),
-          "", f"## Most falsely flagged phones (natural voices, τ = {summary['per_phone_tau']:g})", "",
+           else f"No threshold in the sweep keeps pooled natural-voice FPR below "
+                f"{FPR_TARGET:.0%}."),
+          ""]
+    if detail:
+        spread = detail["disagreement"]
+        lo, hi = min(spread.values()), max(spread.values())
+        L += [(f"By the **median voice** (robust to one bad talker): "
+               f"**τ = {med:g}** (median FPR {fmt_pct(detail['median_fpr'][str(med)])})."
+               if med is not None else
+               "No threshold keeps even the median voice below the target."),
+              "",
+              f"Per-voice disagreement ranges {fmt_pct(lo)}–{fmt_pct(hi)}. "
+              + ("A wide spread means the voices are not measuring the same thing — "
+                 "check for a dialect mismatch or an unusual speaking style before "
+                 "trusting the pooled number."
+                 if hi > 2 * lo else "The voices agree closely, so pooling is safe."),
+              ""]
+    L += [f"## Most falsely flagged phones (natural voices, τ = {summary['per_phone_tau']:g})", "",
           "| canonical | false flags | occurrences | rate | heard as |", "|---|---|---|---|---|"]
     for row in summary["per_phone"]:
         heard = ", ".join(f"{h} ×{n}" for h, n in row["heard_as"])
@@ -135,6 +177,9 @@ def main():
     }
     summary["lang"] = a.lang
     summary["recommended_tau"] = recommend(summary["natural"])
+    robust, detail = recommend_robust(summary["voices"])
+    summary["recommended_tau_median_voice"] = robust
+    summary["median_voice"] = detail
     path = write_results(results_name("native_control", a.lang), summary, markdown(summary))
     print(f"\nwrote {path}")
     print(markdown(summary))

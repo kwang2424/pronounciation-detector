@@ -42,7 +42,7 @@ training. The alignment, GOP and staircase code is language-neutral.
 | | espeak G2P | Perception training | Evaluated |
 |---|---|---|---|
 | German | reliable | 4 / 4 contrasts | yes, tiers 1-2 below |
-| French | reliable | 5 / 5 contrasts | tier 1 ready to run |
+| French | reliable | 5 / 5 contrasts | tier 1 run — **production not ready**, see below |
 | Danish | good segments, unreliable stød | 4 / 5 contrasts | not yet |
 | Korean | unreliable | disabled | not yet |
 
@@ -143,8 +143,33 @@ clip cache so its committed baseline stays comparable. Tier 2 is still
 German-only: it needs a French error catalogue in `eval/errors.py` before it can
 report recall.
 
-French production diagnosis itself already works (`--lang fr`) — it is the
-*numbers* that are not yet French.
+### French tier-1 result: perception yes, production not yet
+
+The first French run gave a pooled natural-voice false-positive rate of **12.8%
+at τ=-2**, against German's 1.6%. Three things were behind it, two of them the
+harness's fault:
+
+1. **Liaison.** Phonemising word by word, `les amis` is `le ami` while a speaker
+   says `lezami`, so the recogniser hears a /z/ nobody predicted. Liaison was the
+   single largest false-positive category (insertions: z×30, t×19). Fixed —
+   `mdd/g2p.py` now phonemises a sentence at a time, which espeak applies liaison
+   across. German is byte-identical either way, verified over all 102 of its
+   sentences and all 62 error injections.
+2. **A dialect mismatch.** `fr-CA-SylvieNeural` was in the default voice list
+   against an `fr-fr` canonical transcription. Quebec French differs
+   systematically, so its 20.3% disagreement measured dialect, not error. Removed.
+3. **One outlier voice.** Per-voice disagreement ranged 8.5% to 47.1%, and
+   pooling let the worst talker set the threshold for everyone — hence the
+   nonsensical "recommended τ = -8". The report now also recommends from the
+   **median voice** and prints the spread.
+
+What remains is real and not fixable by tuning: the recogniser mis-hears French
+**nasal vowels** badly (ɛ̃ flagged 41.7% of the time, heard as `a` ×24; ɑ̃ 22.4%;
+ɔ̃ 19.4%) and the front rounded vowels too (`y` 30.4%, `ø` 45%, `œ` 44.4%). Those
+are exactly the contrasts French learners need most. Perception training does not
+use the recogniser and is unaffected; production scoring for French should be
+treated as unreliable until it is re-run and, most likely, until a
+French-specific acoustic model replaces the multilingual one.
 
 ## Honest limits
 
