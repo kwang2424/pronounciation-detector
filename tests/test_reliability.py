@@ -1,7 +1,6 @@
 """Flags are not equally trustworthy, and the report has to say so."""
 import json
 
-import pytest
 
 from mdd.reliability import Reliability, blind_spots, reliability
 
