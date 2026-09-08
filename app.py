@@ -36,11 +36,13 @@ def get_recognizer():
 # --------------------------------------------------------------------------
 def run(lang_name: str, text: str, audio_path: str | None, ipa: str, threshold: float):
     code = LANGS[lang_name]
-    text = text.strip()
+    # Gradio hands back None for a textbox the user cleared, not "".
+    text = (text or "").strip()
+    ipa = (ipa or "").strip()
     if not text:
         raise gr.Error(f"Enter a {lang_name} sentence first.")
-    if ipa.strip():
-        rep = analyse(text, realized_ipa=ipa.strip(), threshold=threshold, lang=code)
+    if ipa:
+        rep = analyse(text, realized_ipa=ipa, threshold=threshold, lang=code)
     elif audio_path:
         rep = analyse(text, audio_path, get_recognizer(), threshold=threshold, lang=code)
     else:

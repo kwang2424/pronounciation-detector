@@ -48,12 +48,24 @@ class Setting:
 
 
 #: Kept modest: past roughly ±20% rate a neural voice starts to sound processed,
-#: which would trade the naturalness this exists to gain.
+#: which would trade the naturalness this exists to gain. These are also single
+#: short words — at +18% "rue" was reported as sounding clipped, closer to "re" —
+#: so the fast end is gentler than the slow.
 SETTINGS = (
     Setting("", "+0%", "+0Hz"),
-    Setting("-slow", "-15%", "-10Hz"),
-    Setting("-fast", "+18%", "+12Hz"),
+    Setting("-slow", "-14%", "-8Hz"),
+    Setting("-fast", "+12%", "+10Hz"),
 )
+
+#: Silence added around each clip. Neural TTS trims hard on isolated words, and
+#: the tail is where French carries nasality — "sans" and "son" were both
+#: reported as cut off at the end, which removes the very cue being trained.
+PAD_HEAD_MS = 60
+PAD_TAIL_MS = 220
+#: A raised edge reads as a plosive burst: "haute" was heard as starting with a
+#: p or b, though its h is silent and the clip opens on a vowel. Fading the ends
+#: removes the transient without touching the speech.
+FADE_MS = 12
 
 
 def talker_name(voice: str, setting: Setting) -> str:
@@ -62,14 +74,41 @@ def talker_name(voice: str, setting: Setting) -> str:
     return f"{core}{setting.suffix}"
 
 
+def polish(data, sr: int):
+    """Pad and fade a rendered clip.
+
+    Three separate complaints from one training session traced back to the clip
+    edges: a word heard as starting with a plosive that has no consonant, a short
+    word heard as truncated, and nasal vowels heard as cut off at the end. Padding
+    stops the tail being lost and fades stop an abrupt edge reading as a burst.
+    """
+    import numpy as np
+
+    x = np.asarray(data)
+    if x.ndim > 1:
+        x = x[:, 0]
+    x = x.astype(np.float64)
+
+    fade = max(1, int(sr * FADE_MS / 1000))
+    if x.size > 2 * fade:
+        x[:fade] *= np.linspace(0.0, 1.0, fade)
+        x[-fade:] *= np.linspace(1.0, 0.0, fade)
+    head = np.zeros(int(sr * PAD_HEAD_MS / 1000))
+    tail = np.zeros(int(sr * PAD_TAIL_MS / 1000))
+    return np.concatenate([head, x, tail]).astype(np.int16)
+
+
 async def _render(text: str, voice: str, setting: Setting, path: Path) -> None:
     import edge_tts
     import soundfile as sf
 
+    # A trailing period makes the voice finish the word as a complete utterance
+    # rather than cutting the final phone, which is where French nasality lives.
+    spoken = text if text.endswith((".", "!", "?")) else f"{text}."
     for attempt in range(4):
         try:
             buf = io.BytesIO()
-            stream = edge_tts.Communicate(text, voice, rate=setting.rate,
+            stream = edge_tts.Communicate(spoken, voice, rate=setting.rate,
                                           pitch=setting.pitch).stream()
             async for chunk in stream:
                 if chunk["type"] == "audio":
@@ -77,7 +116,7 @@ async def _render(text: str, voice: str, setting: Setting, path: Path) -> None:
             buf.seek(0)
             data, sr = sf.read(buf, dtype="int16")
             path.parent.mkdir(parents=True, exist_ok=True)
-            sf.write(str(path), data, sr)
+            sf.write(str(path), polish(data, sr), sr)
             return
         except Exception:
             if attempt == 3:

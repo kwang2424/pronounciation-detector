@@ -74,9 +74,15 @@ class RecordedTalkers:
     def _scan(self) -> None:
         base = self.root / self.lang
         if not base.is_dir():
-            base = self.root if self.root.is_dir() else None
-        if base is None:
-            return
+            # The flat layout (clips directly under root) is for a directory that
+            # holds one language. If the root holds per-language subdirectories,
+            # a missing one means "nothing for this language" — falling through to
+            # the root would index another language's clips as this one's, which
+            # is exactly what happened: French stimuli were served as German and
+            # the first German trial died on a missing word.
+            if self._is_multi_language() or not self.root.is_dir():
+                return
+            base = self.root
         for path in sorted(base.rglob("*")):
             if path.suffix.lower() not in AUDIO_SUFFIXES or not path.is_file():
                 continue
@@ -89,6 +95,13 @@ class RecordedTalkers:
                 continue                      # a bare word with no talker: unusable
             self.clips.setdefault(_key(word), {})[talker] = path
 
+    def _is_multi_language(self) -> bool:
+        from .languages import PROFILES
+
+        if not self.root.is_dir():
+            return False
+        return any((self.root / code).is_dir() for code in PROFILES)
+
     # ------------------------------------------------------------------ query
     @property
     def talkers(self) -> list[str]:
@@ -99,6 +112,10 @@ class RecordedTalkers:
 
     def has(self, word: str, talker: str) -> bool:
         return talker in self.clips.get(_key(word), {})
+
+    def covers(self, words) -> bool:
+        """True when every word has at least one talker — what a trial needs."""
+        return all(self.talkers_for(w) for w in words)
 
     def __len__(self) -> int:
         return sum(len(v) for v in self.clips.values())

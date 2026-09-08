@@ -23,6 +23,7 @@ python -m mdd.pipeline "mad gade" --lang da --ipa "mad ɡadə"
 
 # better perception stimuli: neural voices instead of espeak (needs internet)
 python -m eval.make_stimuli fr        # ~9 talkers from 3 voices x 3 speaking rates
+python -m eval.make_stimuli fr --force   # re-render (after a clip-quality change)
 python -m eval.make_stimuli de
 
 # recorded native talkers — the only route for stød

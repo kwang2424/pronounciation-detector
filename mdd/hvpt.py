@@ -171,8 +171,16 @@ class Session:
         from .validate import check_contrast
 
         if self.recordings is not None:
+            # Only judge sets the recordings can actually play; a missing clip
+            # would otherwise surface as a KeyError partway through a session.
+            playable = Contrast(
+                id=contrast.id, label=contrast.label, phones=contrast.phones,
+                pairs=tuple(g for g in contrast.pairs if self.recordings.covers(g)),
+                tip=contrast.tip, why=contrast.why, l1=contrast.l1)
+            if not playable.pairs:
+                return []
             # Judge the audio that will actually be played, not espeak's.
-            report = check_contrast(contrast, self.profile, audio=True,
+            report = check_contrast(playable, self.profile, audio=True,
                                     render=self.recordings.renderer(),
                                     talkers=self.recordings.talkers)
         else:

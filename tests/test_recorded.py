@@ -180,3 +180,74 @@ def test_neural_stimuli_still_go_through_the_gate(tmp_path):
             _write(tmp_path / "fr" / talker / f"{word}.wav", seed=0)   # all identical
     with pytest.raises(PerceptionUnavailable):
         Session("fr", seed=1, recordings=RecordedTalkers(tmp_path, "fr"))
+
+
+def test_a_language_with_no_clips_does_not_borrow_another_languages(tmp_path):
+    """The flat layout (clips directly under root) is for a single-language
+    directory. When the root holds per-language subdirectories, a missing one
+    means nothing for that language — falling through to the root served French
+    stimuli as German and the first German trial died on a missing word."""
+    for word in ("tu", "tout", "rue"):
+        _write(tmp_path / "fr" / "Denise" / f"{word}.wav")
+
+    assert RecordedTalkers(tmp_path, "fr").talkers == ["Denise"]
+    assert RecordedTalkers(tmp_path, "de").talkers == [], "must not see the French clips"
+    assert len(RecordedTalkers(tmp_path, "de")) == 0
+
+
+def test_flat_layout_still_works_for_a_single_language_directory(tmp_path):
+    _write(tmp_path / "anna" / "hund.wav")
+    assert RecordedTalkers(tmp_path, "da").talkers == ["anna"]
+
+
+def test_a_partly_covered_contrast_is_skipped_not_crashed_on(tmp_path):
+    """A set missing some words used to validate fine and then raise KeyError
+    partway through a session."""
+    from mdd.languages import get
+
+    profile = get("da")
+    covered = profile.contrast("soft-d").pairs[0]          # just one pair
+    for word in covered:
+        for talker in ("anna", "bo", "cecilie"):
+            _write(tmp_path / "da" / talker / f"{word}.wav", seed=hash(word) % 50)
+
+    store = RecordedTalkers(tmp_path, "da")
+    assert store.covers(covered)
+    assert not store.covers(("mad", "mat", "bad", "bat"))
+
+    session = Session("da", seed=1, recordings=store)
+    for _ in range(15):                                     # would raise if uncovered
+        trial = session.next_trial()
+        assert set(trial.choices) <= set(covered)
+        session.record(trial, trial.target)
+
+
+def test_clip_polish_removes_onset_transients_and_pads_the_tail():
+    """Three complaints from one session traced to clip edges: a vowel-initial
+    word heard as starting with a plosive, a short word heard as truncated, and
+    nasal vowels heard as cut off — the tail being where nasality lives."""
+    import numpy as np
+
+    from eval.make_stimuli import FADE_MS, PAD_HEAD_MS, PAD_TAIL_MS, polish
+
+    sr = 24000
+    # cosine starts at full scale: a step edge, i.e. the audible click
+    word = (np.cos(2 * np.pi * 200 * np.linspace(0, 0.35, int(sr * 0.35))) * 20000).astype(np.int16)
+    out = polish(word, sr)
+    head = int(sr * PAD_HEAD_MS / 1000)
+    tail = int(sr * PAD_TAIL_MS / 1000)
+
+    assert abs(int(out[head])) < 0.05 * abs(int(word[0])), "onset step must be faded"
+    assert len(out) == len(word) + head + tail, "padding added, speech not trimmed"
+    assert np.abs(out[head + int(sr * FADE_MS / 1000):-tail]).max() > 19000, "body untouched"
+
+
+def test_rendered_words_get_a_trailing_period():
+    """A bare word makes the voice cut the final phone; a complete utterance does
+    not. French nasality is carried in exactly that final stretch."""
+    import inspect
+
+    from eval import make_stimuli
+
+    source = inspect.getsource(make_stimuli._render)
+    assert 'f"{text}."' in source
