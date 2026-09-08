@@ -21,6 +21,10 @@ python -m mdd.pipeline "mad gade" --lang da --ipa "mad ɡadə"
 
 # perception progress is kept in ~/.mdd/progress.json ($MDD_PROGRESS to move it)
 
+# better perception stimuli: neural voices instead of espeak (needs internet)
+python -m eval.make_stimuli fr        # ~9 talkers from 3 voices x 3 speaking rates
+python -m eval.make_stimuli de
+
 # recorded native talkers — the only route for stød
 python -m mdd.recorded da --script              # word list to hand a speaker
 python -m mdd.recorded da --root ./recordings   # what those recordings cover
@@ -206,10 +210,15 @@ French-specific acoustic model rather than a better threshold.
 
 ## Honest limits
 
-- Perception stimuli are **formant-synthesised**, not recorded. The HVPT
-  literature measured its effects on natural multi-talker speech; synthetic
-  voices are a usable bootstrap, not a replication. `Talker` and `synthesize` in
-  `mdd/synth.py` are the only things a recorded-audio backend has to replace.
+- Perception stimuli default to espeak **formant synthesis**, which is
+  intelligible enough to validate a contrast mechanically but thin and robotic to
+  train on — the first thing a real user noticed. `python -m eval.make_stimuli
+  <lang>` renders the contrast words with neural voices at several speaking rates
+  (nine talkers from three voices for French) into `~/.mdd/stimuli`, and the app
+  uses whatever is there automatically. That is still synthetic; recorded native
+  talkers via `mdd/recorded.py` remain the goal, and drop into the same directory.
+  Either way the audio goes through the same gate — better-sounding stimuli are
+  not exempt from having to separate the pair.
 - `mdd/validate.py` checks that a pair is rendered *distinctly*. It cannot check
   that it is rendered *correctly*. Two demonstrated cases: espeak renders Korean
   fortis stops as uvulars, and it can be forced to "distinguish" Danish stød by

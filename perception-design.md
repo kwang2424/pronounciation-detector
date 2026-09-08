@@ -291,6 +291,26 @@ One incidental finding: the neural clips ran ~1.5s for monosyllables, which is
 mostly padding, so `Anatomy` reports `voiced_duration` separately — total
 duration describes the padding, not the word.
 
+## 7a3. Stimulus quality
+
+espeak is a rule-based formant synthesiser. It is good enough to answer *whether*
+a contrast is rendered distinctly, which is what the gate needs, and poor enough
+that training on it is unpleasant — a learner reported the voices as unclear
+before anything else. Three tiers, all reading from the same directory and all
+subject to the same gate:
+
+| tier | source | effort |
+|---|---|---|
+| default | espeak formant synthesis | none |
+| better | `eval.make_stimuli`, neural TTS at several rates | one command, needs internet |
+| best | recorded native talkers (`mdd/recorded.py`) | ~10 min per speaker |
+
+Only two to four neural voices exist per language, and single-talker training
+does not generalise (Lively et al. 1993), so each voice is rendered at several
+speaking rates and pitches — nine talkers from three French voices. The variation
+is kept under about ±20%: past that a neural voice starts to sound processed,
+which trades away the naturalness the tier exists to gain.
+
 ## 7b. Swapping the render backend
 
 `mdd/validate.py` takes a `render` callable, so the same gate can be pointed at

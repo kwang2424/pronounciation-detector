@@ -13,6 +13,7 @@ from mdd.hvpt import PerceptionUnavailable, Session  # noqa: E402
 from mdd.languages import PROFILES  # noqa: E402
 from mdd.pipeline import GOP_THRESHOLD, analyse  # noqa: E402
 from mdd.progress import Progress  # noqa: E402
+from mdd.recorded import RecordedTalkers, default_root  # noqa: E402
 
 _recognizer = None
 _TMP = Path(tempfile.gettempdir()) / "mdd-stimuli"
@@ -71,19 +72,49 @@ def on_lang_change(lang_name: str):
 # --------------------------------------------------------------------------
 # Perception tab
 # --------------------------------------------------------------------------
+def _stimuli_for(code: str) -> RecordedTalkers | None:
+    """Prefer recorded or neural clips over formant synthesis when any exist.
+
+    espeak is intelligible enough to validate a contrast mechanically but thin to
+    train on, which is the first thing a real user noticed. Anything in the
+    stimuli directory — neural TTS from `eval.make_stimuli`, or real recordings —
+    is used instead, and still has to pass the same gate.
+    """
+    try:
+        store = RecordedTalkers(default_root(), code)
+    except OSError:
+        return None
+    return store if len(store.talkers) >= 2 else None
+
+
 def start_session(lang_name: str):
     code = PERCEPTION_LANGS[lang_name]
     store = Progress.load()
+    stimuli = _stimuli_for(code)
     try:
-        session = Session(code, progress=store)
+        session = Session(code, progress=store, recordings=stimuli)
     except PerceptionUnavailable as exc:
-        raise gr.Error(str(exc))
+        if stimuli is None:
+            raise gr.Error(str(exc))
+        # The recorded set failed the gate; fall back rather than blocking practice.
+        gr.Warning(f"Recorded stimuli unusable ({exc}); falling back to synthesis.")
+        stimuli = None
+        try:
+            session = Session(code, progress=store)
+        except PerceptionUnavailable as exc2:
+            raise gr.Error(str(exc2)) from exc2
     note = ""
     if session.skipped:
         skipped = ", ".join(f"`{k}`" for k in session.skipped)
         note = (f"\n\n*Not trained: {skipped} — the synthesiser cannot render "
                 f"{'them' if len(session.skipped) > 1 else 'it'} distinctly, so a trial "
                 f"would be unanswerable.*")
+    if stimuli is not None:
+        note += (f"\n\n*Stimuli: {len(stimuli.talkers)} recorded/neural talkers "
+                 f"from {default_root()}.*")
+    else:
+        note += ("\n\n*Stimuli: espeak formant synthesis — robotic. Run "
+                 "`python -m eval.make_stimuli " + code + "` for neural voices.*")
     if store.load_error:
         note += (f"\n\n*Starting from an empty history: {store.load_error}. "
                  f"Past practice is not lost — the existing file is left untouched.*")
@@ -98,7 +129,7 @@ def _serve(session: Session, message: str):
     """Build a new trial and the UI updates that present it."""
     trial = session.next_trial()
     contrast = session.profile.contrast(trial.contrast_id)
-    path = trial.render(_TMP / f"trial-{len(session.history)}-{trial.talker.variant}.wav")
+    path = trial.render(_TMP / f"trial-{len(session.history)}-{trial.talker_id}.wav")
     heading = f"### {contrast.label}\n{contrast.why}"
     return (trial, str(path), heading,
             gr.update(choices=list(trial.choices), value=None, visible=True),

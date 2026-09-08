@@ -46,6 +46,12 @@ class Trial:
     lang: str
 
     @property
+    def talker_id(self) -> str:
+        """A short id for the talker that works for both stimulus sources: espeak
+        `Talker` objects carry a variant name, recorded talkers are plain strings."""
+        return str(getattr(self.talker, "variant", self.talker))
+
+    @property
     def answer_index(self) -> int:
         return self.choices.index(self.target)
 

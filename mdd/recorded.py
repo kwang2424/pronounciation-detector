@@ -40,6 +40,14 @@ TALKER_SEP = "__"
 MIN_TALKERS = 3
 
 
+def default_root() -> Path:
+    """`$MDD_STIMULI` if set, else ~/.mdd/stimuli — beside the progress file."""
+    import os
+
+    env = os.environ.get("MDD_STIMULI")
+    return Path(env) if env else Path.home() / ".mdd" / "stimuli"
+
+
 def _key(word: str) -> str:
     """Normalise for lookup: macOS stores filenames NFD, so 'bønder' off a Mac
     does not compare equal to the NFC string in the contrast tables."""

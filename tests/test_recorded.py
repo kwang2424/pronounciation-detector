@@ -130,3 +130,53 @@ def test_wordlist_covers_every_contrast_word():
     words = set(wordlist(profile))
     for contrast in profile.contrasts:
         assert set(contrast.words()) <= words
+
+
+# ------------------------------------------------- neural / recorded stimuli
+def test_talker_id_works_for_both_stimulus_sources():
+    """espeak talkers are objects with a variant name; recorded talkers are plain
+    strings. The app builds clip filenames from this and broke on the second."""
+    from mdd.hvpt import Session
+    from mdd.synth import TALKERS
+
+    trial = Session("de", seed=1).next_trial()
+    assert trial.talker in TALKERS
+    assert trial.talker_id == trial.talker.variant
+
+    from mdd.hvpt import Trial
+    assert Trial("c", "w", ("w", "x"), "Denise-fast", "fr").talker_id == "Denise-fast"
+
+
+def test_prosodic_variants_give_distinct_talker_names():
+    """Only two to four neural voices exist per language, and talker variability
+    is what makes HVPT generalise — so each voice is rendered at several rates."""
+    from eval.make_stimuli import SETTINGS, talker_name
+
+    names = {talker_name(v, s)
+             for v in ("fr-FR-DeniseNeural", "fr-FR-HenriNeural", "fr-FR-EloiseNeural")
+             for s in SETTINGS}
+    assert len(names) == 9
+    assert "Denise" in names and "Denise-fast" in names and "Henri-slow" in names
+
+
+def test_stimuli_root_is_configurable(monkeypatch, tmp_path):
+    from mdd.recorded import default_root
+
+    monkeypatch.setenv("MDD_STIMULI", str(tmp_path))
+    assert default_root() == tmp_path
+    monkeypatch.delenv("MDD_STIMULI")
+    assert default_root().name == "stimuli"
+
+
+def test_neural_stimuli_still_go_through_the_gate(tmp_path):
+    """Better-sounding audio is not exempt: a contrast is trainable only if THIS
+    audio separates it, which is a different question from whether espeak's did."""
+    from mdd.hvpt import PerceptionUnavailable, Session
+    from mdd.languages import get
+    from mdd.recorded import RecordedTalkers, wordlist
+
+    for word in wordlist(get("fr")):
+        for talker in ("Denise", "Henri", "Eloise"):
+            _write(tmp_path / "fr" / talker / f"{word}.wav", seed=0)   # all identical
+    with pytest.raises(PerceptionUnavailable):
+        Session("fr", seed=1, recordings=RecordedTalkers(tmp_path, "fr"))
