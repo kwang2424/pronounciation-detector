@@ -59,6 +59,10 @@ class LanguageProfile:
     #: positive on the German native-control eval. `None` means "dropped entirely".
     #: Empty means no leniency — onset r is strict in every language.
     coda_r_ok: frozenset[str | None] = frozenset()
+    #: Realisations accepted as native for a canonical phone in ANY position —
+    #: allophones the recogniser spells differently, not learner errors. Unlike
+    #: `coda_r_ok` this is position-independent.
+    allow: dict[str, frozenset[str]] = field(default_factory=dict)
     #: Recogniser/G2P spelling variants folded to one token.
     equiv: dict[str, str] = field(default_factory=dict)
     #: Diacritics stripped in addition to BASE_STRIP.
@@ -370,6 +374,15 @@ FRENCH = LanguageProfile(
     multi=("ɑ̃", "ɛ̃", "ɔ̃", "œ̃", "wa", "wɛ̃", "ɥi", "tʃ", "dʒ"),
     r_variants=frozenset({"r", "ʀ", "ʁ", "ɾ"}),
     r_canonical="ʁ",
+    # French /ʁ/ is a uvular fricative that devoices to [χ] next to voiceless
+    # consonants and phrase-finally; the recogniser has no [χ] and spells it h or
+    # x. Same phoneme, different allophone — it was the largest single-phone
+    # false-positive source in the native control (16.3%, heard as ∅×16 h×11 x×6).
+    allow={"ʁ": frozenset({"h", "x", "χ", "ʀ"})},
+    # And /ʁ/ drops from a final obstruent+liquid cluster in ordinary speech
+    # (quatre -> [kat], notre -> [nɔt]). Coda only: a learner dropping r before a
+    # vowel is still an error.
+    coda_r_ok=frozenset({None}),
     equiv={
         "ɒ": "ɔ",        # espeak occasionally emits the English open-back vowel
         "a": "a", "ɑ": "a",

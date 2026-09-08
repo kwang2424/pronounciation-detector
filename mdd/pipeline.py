@@ -104,6 +104,8 @@ def analyse(text: str, wav_path: str | None = None, recognizer=None, realized_ip
             if (op.canonical == profile.r_canonical and coda_of[ci]
                     and op.realized in profile.coda_r_ok):
                 kind = "match"
+            if op.realized is not None and op.realized in profile.allow.get(op.canonical, ()):
+                kind = "match"
             if not flag_length and _length_only(op.canonical, op.realized):
                 kind = "match"
             ci += 1
