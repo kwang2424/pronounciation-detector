@@ -44,12 +44,30 @@ def recognizer():
     return _rec
 
 
+def canonical_signature(text: str, lang: str = DEFAULT_LANG) -> str:
+    """Hash of the canonical phone sequence this text produces right now.
+
+    The cache key carries this so that any change to the canonical side — G2P,
+    the tokeniser, a language profile — invalidates the affected entries by
+    itself. VERSION alone did not: switching French to sentence-level
+    phonemisation for liaison changed every French canonical form, VERSION was
+    not bumped by hand, and a whole re-run silently replayed the old numbers.
+    A key that is derived from the thing it caches cannot be forgotten.
+
+    Cheap: espeak G2P is milliseconds against a model forward pass. It also means
+    a language whose canonical forms did not change keeps its cache.
+    """
+    tokens = [t for _, toks in canonical_tokens_by_word(text, lang) for t in toks]
+    return key(lang, " ".join(tokens))
+
+
 def analyse_cached(text: str, wav_path: Path, json_path: Path,
                    lang: str = DEFAULT_LANG) -> dict:
     """Run the pipeline once per clip; later threshold sweeps reuse the raw per-phone GOPs.
-    The cache file name carries the pipeline version so rule changes trigger a re-run."""
+    The cache file name carries the pipeline version and a hash of the canonical
+    phones, so both a flagging-rule change and a canonical change trigger a re-run."""
     from mdd.pipeline import VERSION, analyse
-    json_path = json_path.with_suffix(f".v{VERSION}.json")
+    json_path = json_path.with_suffix(f".v{VERSION}-{canonical_signature(text, lang)}.json")
     if json_path.exists():
         try:
             return json.loads(json_path.read_text(encoding="utf-8"))

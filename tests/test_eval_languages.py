@@ -195,3 +195,40 @@ def test_espeak_is_excluded_from_the_median_too():
         "espeak:fr": {"fpr": fpr, "disagreement_rate": 0.51},
     })
     assert "espeak:fr" not in detail["disagreement"]
+
+
+# --------------------------------------------------------------- cache keys
+def test_cache_key_tracks_the_canonical_phones():
+    """A hand-maintained VERSION is forgettable, and was forgotten: switching
+    French to sentence-level phonemisation changed every French canonical form,
+    VERSION was not bumped, and a full re-run silently replayed stale numbers.
+    Deriving the key from the canonical sequence makes that impossible."""
+    from eval.common import canonical_signature
+    from mdd import languages
+
+    before_de = canonical_signature("Ich möchte ein Bier", "de")
+    before_fr = canonical_signature("les amis", "fr")
+
+    original = languages.PROFILES["fr"]
+    languages.PROFILES["fr"] = languages.LanguageProfile(
+        **{**original.__dict__, "equiv": {**original.equiv, "z": "s"}})
+    try:
+        assert canonical_signature("les amis", "fr") != before_fr, \
+            "a change to French canonical forms must invalidate French entries"
+        assert canonical_signature("Ich möchte ein Bier", "de") == before_de, \
+            "and must leave an untouched language's cache valid"
+    finally:
+        languages.PROFILES["fr"] = original
+
+
+def test_cache_key_is_stable_for_unchanged_text():
+    from eval.common import canonical_signature
+
+    assert canonical_signature("Il fait beau", "fr") == canonical_signature("Il fait beau", "fr")
+
+
+def test_cache_key_separates_languages():
+    from eval.common import canonical_signature
+
+    # Same string, different profile: must not share a cache entry.
+    assert canonical_signature("son", "fr") != canonical_signature("son", "de")
