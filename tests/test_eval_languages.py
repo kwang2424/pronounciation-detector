@@ -221,6 +221,27 @@ def test_cache_key_tracks_the_canonical_phones():
         languages.PROFILES["fr"] = original
 
 
+def test_cache_key_tracks_flagging_rules_too():
+    """A change to which realisations count as native rewrites the cached report
+    without touching a single canonical phone. Accepting French /ʁ/ allophones
+    did exactly that, and a canonical-only hash would have replayed stale
+    numbers — the same failure as the forgotten VERSION, one axis over."""
+    from eval.common import canonical_signature
+    from mdd import languages
+
+    before = canonical_signature("Il fait beau", "fr")
+    before_de = canonical_signature("Ich möchte ein Bier", "de")
+
+    original = languages.PROFILES["fr"]
+    languages.PROFILES["fr"] = languages.LanguageProfile(
+        **{**original.__dict__, "allow": {}})
+    try:
+        assert canonical_signature("Il fait beau", "fr") != before
+        assert canonical_signature("Ich möchte ein Bier", "de") == before_de
+    finally:
+        languages.PROFILES["fr"] = original
+
+
 def test_cache_key_is_stable_for_unchanged_text():
     from eval.common import canonical_signature
 

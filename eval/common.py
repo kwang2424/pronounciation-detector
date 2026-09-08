@@ -45,20 +45,35 @@ def recognizer():
 
 
 def canonical_signature(text: str, lang: str = DEFAULT_LANG) -> str:
-    """Hash of the canonical phone sequence this text produces right now.
+    """Hash of everything that decides what a cached report contains.
 
-    The cache key carries this so that any change to the canonical side — G2P,
-    the tokeniser, a language profile — invalidates the affected entries by
-    itself. VERSION alone did not: switching French to sentence-level
-    phonemisation for liaison changed every French canonical form, VERSION was
-    not bumped by hand, and a whole re-run silently replayed the old numbers.
-    A key that is derived from the thing it caches cannot be forgotten.
+    Two independent things can change it, and a hand-maintained VERSION missed
+    both in turn:
 
-    Cheap: espeak G2P is milliseconds against a model forward pass. It also means
-    a language whose canonical forms did not change keeps its cache.
+    * the **canonical phones** — G2P, the tokeniser, a profile's inventory.
+      Switching French to sentence-level phonemisation for liaison rewrote every
+      French canonical form; VERSION was not bumped and a whole re-run replayed
+      the old numbers.
+    * the **flagging rules** that `analyse` bakes into the report — which
+      realisations count as native. Accepting French /ʁ/ allophones changed no
+      canonical phone at all, so hashing those alone would have missed it too.
+
+    Both are folded in here, so a key derived from what it caches cannot be
+    forgotten. Cheap: espeak G2P is milliseconds against a model forward pass,
+    and a language whose behaviour did not change keeps its cache.
     """
+    from mdd.languages import get
+    from mdd.pipeline import FLAG_LENGTH_ONLY
+
+    profile = get(lang)
     tokens = [t for _, toks in canonical_tokens_by_word(text, lang) for t in toks]
-    return key(lang, " ".join(tokens))
+    rules = (
+        profile.r_canonical,
+        ",".join(sorted(x or "∅" for x in profile.coda_r_ok)),
+        ";".join(f"{k}>{','.join(sorted(v))}" for k, v in sorted(profile.allow.items())),
+        str(FLAG_LENGTH_ONLY),
+    )
+    return key(lang, " ".join(tokens), "|".join(rules))
 
 
 def analyse_cached(text: str, wav_path: Path, json_path: Path,
