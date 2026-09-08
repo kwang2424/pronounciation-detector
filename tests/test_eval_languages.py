@@ -253,3 +253,58 @@ def test_cache_key_separates_languages():
 
     # Same string, different profile: must not share a cache entry.
     assert canonical_signature("son", "fr") != canonical_signature("son", "de")
+
+
+def test_report_breaks_phones_down_per_voice_when_they_diverge():
+    """When one talker disagrees several times as often as another, the pooled
+    phone table describes that talker rather than the language. French: Eloise
+    at 42.8% against Henri at 7.1%."""
+    from eval.common import THRESHOLDS
+    from eval.native_control import markdown
+
+    def rates(d):
+        return {"n_sentences": 76, "n_phones": 1200, "disagreement_rate": d,
+                "fpr": {str(t): 0.03 for t in THRESHOLDS},
+                "sentence_flag_rate": {str(t): 0.3 for t in THRESHOLDS}}
+
+    def rows(*pairs):
+        return [{"canonical": c, "false_flags": 5, "occurrences": 100, "rate": r,
+                 "heard_as": [("x", 3)]} for c, r in pairs]
+
+    summary = {
+        "thresholds": THRESHOLDS, "lang": "fr",
+        "voices": {"edge:a": rates(0.071), "edge:b": rates(0.428)},
+        "natural": rates(0.11), "all": rates(0.16),
+        "per_phone_tau": -2.0, "per_phone": rows(("y", 0.31)),
+        "per_phone_by_voice": {"edge:a": rows(("y", 0.30)), "edge:b": rows(("ə", 0.61))},
+        "recommended_tau": -6.0, "recommended_tau_median_voice": -1.0,
+        "median_voice": {"median_fpr": {str(t): 0.04 for t in THRESHOLDS},
+                         "disagreement": {"edge:a": 0.071, "edge:b": 0.428}},
+    }
+    out = markdown(summary)
+    assert "Per-voice breakdown" in out
+    assert "6.0x as often" in out
+    assert "ə 61.0%" in out
+
+
+def test_no_per_voice_breakdown_when_voices_agree():
+    """It is a diagnostic for a divergence, not noise on every report."""
+    from eval.common import THRESHOLDS
+    from eval.native_control import markdown
+
+    def rates(d):
+        return {"n_sentences": 76, "n_phones": 1200, "disagreement_rate": d,
+                "fpr": {str(t): 0.03 for t in THRESHOLDS},
+                "sentence_flag_rate": {str(t): 0.3 for t in THRESHOLDS}}
+
+    summary = {
+        "thresholds": THRESHOLDS, "lang": "de",
+        "voices": {"edge:a": rates(0.08), "edge:b": rates(0.09)},
+        "natural": rates(0.085), "all": rates(0.09),
+        "per_phone_tau": -2.0, "per_phone": [],
+        "per_phone_by_voice": {"edge:a": [], "edge:b": []},
+        "recommended_tau": -1.0, "recommended_tau_median_voice": -1.0,
+        "median_voice": {"median_fpr": {str(t): 0.03 for t in THRESHOLDS},
+                         "disagreement": {"edge:a": 0.08, "edge:b": 0.09}},
+    }
+    assert "Per-voice breakdown" not in markdown(summary)

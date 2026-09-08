@@ -175,18 +175,27 @@ liaison consonants entirely (was z×21 t×15, now ə×12 ŋ×8 l×6). Per voice:
 | fr-FR-Denise | 9.3% → **7.9%** | 5.6% → **4.2%** |
 | fr-FR-Eloise | 47.1% → 45.4% | 30.1% → 28.8% |
 
-Henri is now within reach of German's 1.6%. **Eloise is not a French problem** —
-two voices sit near 7% disagreement and one at 45%, which is a property of that
-talker, not the language. Until it is understood, read the median-voice
-recommendation rather than the pooled one.
+Henri is at **2.6%** and Denise **4.1%** at τ=-2, against German's 1.6%.
 
-A second fix followed from the per-phone table and is **not yet re-measured**:
+**Eloise is now the dominant problem and is not a French one**: 26.8% against
+their 2.6-4.1%, and 42.8% disagreement against their ~7%. She is roughly
+two-thirds of the pooled figure. Without her the two remaining voices average
+about 3.4% at τ=-2, which is a usable production scorer. The report now prints a
+**per-voice phone breakdown** whenever one talker disagrees more than twice as
+often as another: if the same phones dominate every voice it is a degree
+difference (rate, recording), and if different phones dominate it is an accent
+and that voice is measuring something other than the pipeline. Read the
+median-voice recommendation, not the pooled one, until this is settled.
+
+A second fix followed from the per-phone table and **has now been measured**:
 /ʁ/ was the largest single-phone source at 16.3%, heard as ∅×16, h×11, x×6.
 Those are allophones, not errors — French /ʁ/ devoices to [χ] next to voiceless
 consonants and phrase-finally (the recogniser has no [χ] and spells it h or x),
 and it drops from a final obstruent+liquid cluster in ordinary speech (quatre →
-[kat]). Both are now accepted; the English rhotic [ɹ] and a dropped onset r stay
-flagged.
+[kat]). Accepting them halved it: **16.3% → 8.0%**, from second in the table to
+seventh, with h and x gone entirely and ∅ down 16 → 7. The seven that remain are
+pre-vocalic, where dropping r really is an error, and the English rhotic [ɹ]
+stays flagged.
 
 What is left after all that is the recogniser itself, and tuning will not touch
 it: **nasal vowels** (ɛ̃ 34.4%, heard as `a` ×22; ɔ̃ 25.8%; ɑ̃ 23.1%) and **front
