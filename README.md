@@ -21,6 +21,10 @@ python -m mdd.pipeline "mad gade" --lang da --ipa "mad ɡadə"
 
 # perception progress is kept in ~/.mdd/progress.json ($MDD_PROGRESS to move it)
 
+# recorded native talkers — the only route for stød
+python -m mdd.recorded da --script              # word list to hand a speaker
+python -m mdd.recorded da --root ./recordings   # what those recordings cover
+
 # which contrasts can espeak actually render?
 python -m mdd.validate da
 python -m mdd.validate --no-audio          # fast, transcription check only
@@ -38,8 +42,15 @@ training. The alignment, GOP and staircase code is language-neutral.
 | | espeak G2P | Perception training | Evaluated |
 |---|---|---|---|
 | German | reliable | 4 / 4 contrasts | yes, tiers 1-2 below |
+| French | reliable | 5 / 5 contrasts | tier 1 ready to run |
 | Danish | good segments, unreliable stød | 4 / 5 contrasts | not yet |
 | Korean | unreliable | disabled | not yet |
+
+**French** trains the five contrasts that matter most for English speakers: /y/ vs
+/u/ (tu/tout), the three nasal vowels (sans/sain/son), nasal vs oral (paix/pain),
+close vs open mid vowels (saute/sotte), and é vs è (les/lait). espeak needs two
+different names for it — `fr-fr` to phonemise, `fr` to synthesise — which the
+profile carries as `g2p_code` and `voice`.
 
 **Danish** is the best fit for this approach, because its difficulty is
 concentrated in exactly what the tool addresses: the soft d, a very dense vowel
@@ -49,6 +60,21 @@ rather than the rhyme, and `hun`/`hund` and `mor`/`mord` come out identical — 
 stød is excluded from training rather than drilled with unanswerable trials. It
 is still diagnosed on the production side, where the learner's own audio is the
 evidence.
+
+Neural TTS does not rescue it either: measured over six minimal pairs, one Danish
+neural voice creaked on 9 of 12 words including three with no stød (creaky voice
+quality, not phonology) and the other creaked only on a *non*-stød word. Stød
+needs recorded native talkers; `python -m eval.tts_probe da --anatomy` is how that
+was established and how to re-test any new backend.
+
+`mdd/recorded.py` takes a directory of clips (`<root>/<lang>/<talker>/<word>.wav`)
+and makes it the stimulus source, which unblocks stød and improves every other
+contrast. It is 41 Danish words per speaker, roughly ten minutes each. Recordings
+are not trusted blindly — they go through the same gate, so a set where two words
+were recorded identically is still rejected. Prefer **citation form**: stød is
+reliably realised on an isolated stressed word and weakens when the word is
+unstressed in running speech, so clips excised from continuous audio are the
+least reliable source for the contrast that needs them most.
 
 Perception progress persists across sittings in `~/.mdd/progress.json` (set
 `$MDD_PROGRESS` to move it). The app saves after every answer, so closing the tab
@@ -68,6 +94,8 @@ Two automated tiers from section 7 of the design doc (the third, real learner re
 
 ```bash
 python -m eval.native_control      # tier 1: native TTS voices, every flag is a false positive -> FPR per threshold
+python -m eval.preflight fr        # check a language is ready before a long run (no model needed)
+python -m eval.native_control --lang fr   # same for French; results land in eval/results/fr/
 python -m eval.synthetic_errors    # tier 2: inject each error from the catalogue via espeak phonemes -> recall + diagnosis
 ```
 
@@ -96,8 +124,27 @@ is kept in `eval/results/v1/`; `python -m eval.compare eval/results/v1 eval/resu
 
 The thresholds and inventory mappings the eval produced (`GOP_THRESHOLD`,
 `INS_MIN_PROB`, the ʏ→y and ɛː→eː folds, coda-r acceptance) were tuned on
-**German only**. Danish and Korean inherit the machinery but not the calibration:
-the tiers above need re-running per language before their numbers mean anything.
+**German only**. Every other language inherits the machinery but not the
+calibration.
+
+`python -m eval.preflight <lang>` checks a language is ready before you spend the
+time: which dependencies are missing, whether the recogniser is already cached, a
+runtime estimate, and a model-free look at the canonical side — espeak
+language-switch artifacts and contrast phones too rare for a per-phone rate to
+mean anything. It found two English loanwords (`pull`, `week-end`) in the first
+draft of the French sentences that espeak phonemises *as English*, which would
+have quietly corrupted those comparisons.
+
+Tier 1 is now language-parameterised, so `python -m eval.native_control --lang fr`
+produces a French false-positive rate and a recommended threshold (70 sentences
+are included; it needs internet for the neural voices and downloads the 1.2 GB
+recogniser on first run). German keeps its original paths, voice spellings and
+clip cache so its committed baseline stays comparable. Tier 2 is still
+German-only: it needs a French error catalogue in `eval/errors.py` before it can
+report recall.
+
+French production diagnosis itself already works (`--lang fr`) — it is the
+*numbers* that are not yet French.
 
 ## Honest limits
 

@@ -37,6 +37,11 @@ CREAK_CREST = 3.0
 APERIODIC = 0.45
 #: Frames quieter than this fraction of peak are trimmed as leading/trailing silence.
 EDGE_FRAC = 0.10
+#: A voice that creaks on more than this share of *all* words has creaky phonation
+#: as a voice quality, so creak on any one word carries no information about stød.
+#: This is the same idea as measuring separation against a jitter floor: a signal
+#: only means something relative to that source's own baseline.
+BASELINE_CREAK_RATE = 0.40
 
 
 @dataclass
@@ -58,6 +63,9 @@ class Anatomy:
     #: Where the dip sits, as a fraction through the voiced span.
     dip_position: float
     kind: str
+    #: Length of the voiced span only. Neural TTS pads clips with near-silence, so
+    #: total clip duration says more about the padding than about the word.
+    voiced_duration: float = 0.0
 
     def describe(self) -> str:
         return {
@@ -135,6 +143,8 @@ def analyse(samples, sr: int) -> Anatomy:
     dip_per = _periodicity(dip_frame, sr)
     med_per = float(np.median([_periodicity(f, sr) for f in frames[lo:hi + 1]]))
     pos = (dip_idx - lo) / max(hi - lo, 1)
+    hop = int(sr * 5.0 / 1000)
+    voiced_dur = (hi - lo) * hop / sr
 
     if dip_peak < CLOSURE_PEAK_FRAC:
         kind = "closure"                    # nothing left at all: phonation stopped
@@ -144,7 +154,8 @@ def analyse(samples, sr: int) -> Anatomy:
         kind = "creak"                      # pulses remain but irregular/sparse
     else:
         kind = "unclear"
-    return Anatomy(len(x) / sr, dip_frac, dip_peak, crest, dip_per, med_per, float(pos), kind)
+    return Anatomy(len(x) / sr, dip_frac, dip_peak, crest, dip_per, med_per, float(pos),
+                   kind, voiced_dur)
 
 
 def compare(a: Anatomy, b: Anatomy) -> str:
@@ -162,3 +173,43 @@ def compare(a: Anatomy, b: Anatomy) -> str:
                     f"of the first — a length difference, not stød")
         return f"both look the same ({a.kind}): no stød distinction rendered"
     return f"first is {a.kind}, second is {b.kind}"
+
+
+@dataclass
+class VoiceBaseline:
+    """How creaky a voice is overall — the context every per-word verdict needs.
+
+    A voice with creaky phonation throughout will show a creaky dip on stød and
+    non-stød words alike, and picking out the pairs where it happened to land on
+    the stød member is cherry-picking noise. Measured on real Danish neural
+    voices, one creaked on 9 of 12 words (including three with no stød) while
+    another creaked on 1 (the non-stød member of its pair). Neither rendered
+    stød; without this baseline the first looked like it did.
+    """
+
+    voice: str
+    n_words: int
+    creak_rate: float
+
+    @property
+    def diagnostic(self) -> bool:
+        return 0.0 < self.creak_rate <= BASELINE_CREAK_RATE
+
+    def verdict(self) -> str:
+        if self.creak_rate == 0:
+            return (f"{self.voice}: no creak on any of {self.n_words} words — this voice "
+                    f"renders no stød, so pair differences are something else")
+        if self.creak_rate > BASELINE_CREAK_RATE:
+            return (f"{self.voice}: creaks on {self.creak_rate:.0%} of {self.n_words} words — "
+                    f"creaky voice quality, NOT a stød distinction; per-pair creak here is "
+                    f"not evidence")
+        return (f"{self.voice}: creaks on {self.creak_rate:.0%} of {self.n_words} words — "
+                f"sparse enough to be phonemic; check it lands on the stød member")
+
+
+def baseline(voice: str, anatomies) -> VoiceBaseline:
+    items = list(anatomies)
+    if not items:
+        return VoiceBaseline(voice, 0, 0.0)
+    creaky = sum(1 for a in items if a.kind == "creak")
+    return VoiceBaseline(voice, len(items), creaky / len(items))

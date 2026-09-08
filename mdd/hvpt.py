@@ -54,16 +54,29 @@ class Trial:
             return choice == self.answer_index
         return choice == self.target
 
+    #: When set, the stimulus is a recording rather than synthesis.
+    recordings: object | None = None
+    #: espeak's synthesiser name, which is not always the profile code (French is
+    #: "fr" here but "fr-fr" to the phonemiser). Defaults to `lang`.
+    voice: str = ""
+
     def audio(self):
         """(sample_rate, samples) for the stimulus."""
+        if self.recordings is not None:
+            return self.recordings.audio(self.target, str(self.talker))
         from . import synth
 
-        return synth.synthesize(self.target, self.lang, self.talker)
+        return synth.synthesize(self.target, self.voice or self.lang, self.talker)
 
     def render(self, path):
+        if self.recordings is not None:
+            from . import synth
+
+            rate, samples = self.audio()
+            return synth.write_wav(path, rate, samples)
         from . import synth
 
-        return synth.render_to_file(self.target, self.lang, path, self.talker)
+        return synth.render_to_file(self.target, self.voice or self.lang, path, self.talker)
 
 
 @dataclass
@@ -91,15 +104,20 @@ class Session:
                  seed: int | None = None,
                  validate: bool = True,
                  audio_check: bool = False,
-                 progress: Progress | None = None):
+                 progress: Progress | None = None,
+                 recordings=None):
         """`audio_check` adds the (slow, stochastic) acoustic gate on top of the
         deterministic transcription gate. Off by default so the set of available
         contrasts is stable run to run; `python -m mdd.validate` runs both.
 
         `progress`, when given, seeds this session from prior history so practice
-        is steered by lifetime accuracy rather than by the last few minutes."""
+        is steered by lifetime accuracy rather than by the last few minutes.
+
+        `recordings`, a `mdd.recorded.RecordedTalkers`, replaces synthesis with
+        real talkers — the only route for contrasts no synthesiser renders."""
         self.profile = lang if isinstance(lang, LanguageProfile) else get(lang)
         self.rng = random.Random(seed)
+        self.recordings = recordings
         self.stats: dict[str, ContrastStats] = {}
         self.history: list[tuple[Trial, bool]] = []
         self.progress = progress
@@ -146,7 +164,13 @@ class Session:
             return [g for g in contrast.pairs if len(g) >= MIN_CHOICES]
         from .validate import check_contrast
 
-        report = check_contrast(contrast, self.profile, audio=audio_check)
+        if self.recordings is not None:
+            # Judge the audio that will actually be played, not espeak's.
+            report = check_contrast(contrast, self.profile, audio=True,
+                                    render=self.recordings.renderer(),
+                                    talkers=self.recordings.talkers)
+        else:
+            report = check_contrast(contrast, self.profile, audio=audio_check)
         ok = {(c.word_a, c.word_b) for c in report.usable_pairs}
         groups = []
         for group in contrast.pairs:
@@ -179,8 +203,14 @@ class Session:
             merged.confusions[key] = merged.confusions.get(key, 0) + n
         return merged
 
-    def _pick_talker(self) -> Talker:
-        options = [t for t in TALKERS if t != self._last_talker] or list(TALKERS)
+    def _talker_pool(self):
+        if self.recordings is not None:
+            return self.recordings.talkers
+        return list(TALKERS)
+
+    def _pick_talker(self):
+        pool = self._talker_pool()
+        options = [t for t in pool if t != self._last_talker] or pool
         talker = self.rng.choice(options)
         self._last_talker = talker
         return talker
@@ -197,7 +227,7 @@ class Session:
         target = self.rng.choice(choices)
         self.rng.shuffle(choices)
         return Trial(contrast_id, target, tuple(choices), self._pick_talker(),
-                     self.profile.code)
+                     self.profile.code, self.recordings, self.profile.synth_voice)
 
     def _weakest_contrast(self) -> str:
         """Spend trials where lifetime accuracy is lowest, unpractised ones first.

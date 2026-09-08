@@ -1,0 +1,110 @@
+"""The evaluation harness across languages — and that German did not move."""
+import pytest
+
+from eval.common import canonical_tokens_by_word, load_sentences, results_name
+from eval.tts import default_voices
+
+
+def test_german_defaults_are_unchanged():
+    """German has committed baseline results and a clip cache keyed by voice name;
+    changing either spelling would invalidate the comparison it exists for."""
+    assert default_voices("de") == [
+        "edge:de-DE-KatjaNeural", "edge:de-DE-ConradNeural",
+        "edge:de-DE-AmalaNeural", "edge:de-DE-KillianNeural", "espeak",
+    ]
+    assert results_name("native_control") == "native_control"
+    assert results_name("native_control", "de") == "native_control"
+
+
+def test_other_languages_get_their_own_results_directory():
+    assert results_name("native_control", "fr") == "fr/native_control"
+
+
+def test_french_voices_are_french():
+    voices = default_voices("fr")
+    assert all("fr-" in v or v.startswith("espeak") for v in voices)
+    assert voices[-1] == "espeak:fr"
+
+
+def test_espeak_specs_are_excluded_from_the_natural_split():
+    """The headline FPR describes natural voices. espeak carries a voice name for
+    non-German languages, so an equality check would let 'espeak:fr' through."""
+    for spec in ("espeak", "espeak:fr", "espeak:da"):
+        assert spec.startswith("espeak")
+    assert not "edge:fr-FR-DeniseNeural".startswith("espeak")
+
+
+def test_unknown_language_has_no_default_voices():
+    with pytest.raises(ValueError):
+        default_voices("xx")
+
+
+def test_french_sentences_load_and_cover_the_contrasts():
+    sentences = load_sentences(lang="fr")
+    assert len(sentences) >= 50
+    seen = set()
+    for text in sentences:
+        for _, tokens in canonical_tokens_by_word(text, "fr"):
+            seen.update(tokens)
+    # every phone the French contrasts train must actually occur
+    for phone in ("y", "u", "ɑ̃", "ɛ̃", "ɔ̃", "o", "ɔ", "e", "ɛ", "ʁ"):
+        assert phone in seen, f"/{phone}/ never occurs in the French eval sentences"
+
+
+def test_tokenisation_follows_the_language():
+    """The harness must not silently score French with the German tokeniser."""
+    french = dict(canonical_tokens_by_word("pain", "fr"))
+    assert "ɛ̃" in french["pain"], "French nasality must survive"
+    german = dict(canonical_tokens_by_word("Bier", "de"))
+    assert german["Bier"] and "ɛ̃" not in german["Bier"]
+
+
+def test_missing_sentence_file_says_what_is_needed():
+    with pytest.raises(FileNotFoundError, match="no evaluation sentences"):
+        load_sentences(lang="ko")
+
+
+# ---------------------------------------------------------------- preflight
+def test_preflight_flags_language_switches():
+    """espeak phonemises loanwords as the other language. The tokeniser strips
+    the markers, so the wrong phonemes pass silently into the canonical side —
+    two of these were in the first draft of the French sentences."""
+    from eval.preflight import check_transcription
+
+    assert check_transcription("fr")["switches"] == []
+    assert check_transcription("de")["switches"] == []
+
+
+def test_preflight_reports_thin_contrast_phones():
+    from eval.preflight import THIN_PHONE, check_transcription
+
+    counts = check_transcription("fr")["contrast_phone_counts"]
+    assert counts, "French contrasts should name phones"
+    assert all(n >= THIN_PHONE for n in counts.values()), \
+        f"a phone seen under {THIN_PHONE} times gives a per-phone FPR too noisy to read"
+
+
+def test_preflight_counts_realisation_only_phones_as_zero_not_missing():
+    """A Contrast lists the whole confusable set, including realisations that
+    never appear in canonical transcription — German [ɐ] is one, since espeak
+    writes coda r as ʁ. Reporting that as an error would be a false alarm."""
+    from eval.preflight import check_transcription
+
+    counts = check_transcription("de")["contrast_phone_counts"]
+    assert counts.get("ɐ") == 0
+    assert counts.get("ʁ", 0) > 0
+
+
+def test_preflight_environment_check_runs_without_the_model():
+    from eval.preflight import check_environment
+
+    results = check_environment("fr")
+    assert any("voices configured" in label for _, label in results)
+    assert all(isinstance(ok, bool) for ok, _ in results)
+
+
+def test_preflight_handles_a_language_with_no_sentences():
+    from eval.preflight import check_transcription
+
+    with pytest.raises(FileNotFoundError):
+        check_transcription("ko")

@@ -13,22 +13,24 @@ if __name__ == "__main__":
 import argparse  # noqa: E402
 from collections import Counter, defaultdict  # noqa: E402
 
-from .common import CACHE, THRESHOLDS, analyse_cached, fmt_pct, is_flagged, key, load_sentences, write_results  # noqa: E402
+from .common import CACHE, DEFAULT_LANG, THRESHOLDS, analyse_cached, fmt_pct, is_flagged, key, load_sentences, results_name, write_results  # noqa: E402
 from .tts import default_voices, synth_missing  # noqa: E402
 
 FPR_TARGET = 0.05
 
 
-def collect(voices: list[str], sentences: list[str]) -> dict[str, list[tuple[str, dict]]]:
+def collect(voices: list[str], sentences: list[str],
+            lang: str = DEFAULT_LANG) -> dict[str, list[tuple[str, dict]]]:
     reports = {}
     for voice in voices:
-        vdir = CACHE / "native" / voice.replace(":", "_")
+        vdir = CACHE / "native" / f"{lang}_{voice.replace(':', '_')}" if lang != DEFAULT_LANG \
+            else CACHE / "native" / voice.replace(":", "_")
         items = [(t, vdir / f"{key(t)}.wav") for t in sentences]
         print(f"[{voice}] synthesising {sum(1 for _, p in items if not p.exists())} of {len(items)} clips", flush=True)
         synth_missing(voice, items)
         reps = []
         for i, (t, wav) in enumerate(items, 1):
-            reps.append((t, analyse_cached(t, wav, wav.with_suffix(".json"))))
+            reps.append((t, analyse_cached(t, wav, wav.with_suffix(".json"), lang)))
             if i % 25 == 0 or i == len(items):
                 print(f"[{voice}] analysed {i}/{len(items)}", flush=True)
         reports[voice] = reps
@@ -111,12 +113,17 @@ def markdown(summary: dict) -> str:
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--n", type=int, default=None, help="use only the first N sentences")
-    ap.add_argument("--voices", default=",".join(default_voices()))
+    ap.add_argument("--lang", default=DEFAULT_LANG, help="language code (de, fr, ...)")
+    ap.add_argument("--voices", default=None,
+                    help="comma-separated voice specs; defaults to this language's neural voices")
     ap.add_argument("--per-phone-tau", type=float, default=-2.0)
     a = ap.parse_args()
-    voices = [v for v in a.voices.split(",") if v]
-    reports = collect(voices, load_sentences(a.n))
-    natural = [tr for v, reps in reports.items() if v != "espeak" for tr in reps]
+    voices = [v for v in (a.voices or ",".join(default_voices(a.lang))).split(",") if v]
+    reports = collect(voices, load_sentences(a.n, a.lang), a.lang)
+    # espeak is a formant synthesiser and is kept out of the headline FPR, which
+    # is meant to describe natural voices. startswith, not ==: the spec carries a
+    # voice name for non-German languages ("espeak:fr").
+    natural = [tr for v, reps in reports.items() if not v.startswith("espeak") for tr in reps]
     everything = [tr for reps in reports.values() for tr in reps]
     summary = {
         "thresholds": THRESHOLDS,
@@ -126,8 +133,9 @@ def main():
         "per_phone_tau": a.per_phone_tau,
         "per_phone": per_phone(natural or everything, a.per_phone_tau),
     }
+    summary["lang"] = a.lang
     summary["recommended_tau"] = recommend(summary["natural"])
-    path = write_results("native_control", summary, markdown(summary))
+    path = write_results(results_name("native_control", a.lang), summary, markdown(summary))
     print(f"\nwrote {path}")
     print(markdown(summary))
 

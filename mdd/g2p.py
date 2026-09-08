@@ -12,7 +12,7 @@ def text_to_ipa_words(text: str, lang=None) -> list[tuple[str, str]]:
 
     `lang` accepts an espeak code or a LanguageProfile.
     """
-    lang = getattr(lang, "code", None) or lang or DEFAULT
+    lang = getattr(lang, "phonemizer_language", None) or lang or DEFAULT
     words = [w for w in text.replace("\n", " ").split(" ") if w]
     ipa = phonemize(
         words,

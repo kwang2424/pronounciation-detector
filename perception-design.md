@@ -165,6 +165,26 @@ r-colouring. Two normalisation fixes were needed:
 Stød is excluded from perception training but still diagnosed in production,
 where the learner's own audio is the evidence rather than espeak's.
 
+### French — works
+All five contrasts validate. Adding it surfaced two things worth knowing.
+
+espeak wants **two different names**: its phonemiser rejects `fr` and its
+synthesiser rejects `fr-fr`. `LanguageProfile` now carries `g2p_code` and `voice`,
+both defaulting to `code`, so only languages that need the split pay for it.
+
+More seriously, the combining tilde was in `BASE_STRIP` — inherited from the
+German tokeniser, where `ɛ̃` is only a recogniser artifact. In French nasality is
+phonemic, so that rule silently erased every nasal vowel: `paix` and `pain` both
+tokenised to `/pɛ/` and the validator called the pair identical. Same shape as the
+Danish stød bug, one level up: **a rule that is safe in one language sitting in
+the shared base.** Anything phonemic anywhere now belongs in a profile's own
+`strip`. German and Danish declare the tilde themselves and are unchanged.
+
+espeak also flags mid-utterance language switches inline (`dos` → `(en)dɒs(fr)`),
+which would tokenise into per-letter garbage; the tokeniser strips those markers.
+And it renders `jeûne`/`jeune` as a length difference rather than the ø/œ quality
+difference French has, so that pair is not used.
+
 ### Korean — not yet
 espeak's Korean G2P fails on the two things that matter most:
 
@@ -178,6 +198,10 @@ Both diagnosis and stimulus generation are untrustworthy. Fix is a real G2P
 
 ## 7. Honest limits
 
+- **Stød cannot be synthesised, only recorded.** Established twice over: espeak
+  can be forced to "distinguish" it but produces a glottal stop (silence, not
+  creak), and Danish neural TTS does not render it either (per-voice baselines
+  above). This is settled, not pending.
 - **Synthetic stimuli.** The HVPT literature measured its effects on natural
   multi-talker recordings. Formant synthesis gives talker variability cheaply but
   is spectrally thinner than real speech, and the reported effect sizes should
@@ -243,6 +267,30 @@ Validated against the two cases whose answer is already known: espeak's `hun` vs
 
 `python -m eval.tts_probe da --anatomy` runs this over a backend's pairs.
 
+### Result: Danish neural TTS does not render stød
+
+Measured on `da-DK-ChristelNeural` and `da-DK-JeppeNeural` over six stød pairs:
+
+| voice | creak on | verdict |
+|---|---|---|
+| Christel | 9 of 12 words, incl. `læsser`, `mor`, `ven` (no stød) | creaky voice quality |
+| Jeppe | 1 of 12 — `bønner`, the *non*-stød member | no stød, and inverted |
+
+Read pair by pair, Christel appeared to render stød on three pairs. She does not;
+she creaks on three quarters of everything, so landing on the stød member
+sometimes is arithmetic, not phonology. **A per-word verdict is meaningless
+without the voice's own baseline**, exactly as a separation ratio is meaningless
+without a jitter floor — so `mdd.acoustics.baseline()` computes it and the probe
+prints it before any conclusion. A voice is diagnostic only when it creaks
+sometimes: never means it has no stød, always means it has creaky phonation.
+
+Stød therefore stays gated, and no synthesiser is going to lift it. It needs
+recorded native talkers.
+
+One incidental finding: the neural clips ran ~1.5s for monosyllables, which is
+mostly padding, so `Anatomy` reports `voiced_duration` separately — total
+duration describes the padding, not the word.
+
 ## 7b. Swapping the render backend
 
 `mdd/validate.py` takes a `render` callable, so the same gate can be pointed at
@@ -261,11 +309,16 @@ a high separation ratio is a reason to *listen*, never to flip `hvpt_ready`.
 
 ## 8. Roadmap
 
-1. Recorded talkers, replacing synthesis. Note the shape needed is unusual: the
+1. ~~Recorded talkers, replacing synthesis.~~ The backend landed in
+   `mdd/recorded.py`; what remains is obtaining the audio. Note the shape needed
+   is unusual: the
    *same* small minimal-pair list from *many* talkers, which general ASR corpora
    do not contain — it is ~40 words x 8 speakers, about five minutes of audio,
    so the scarcity is shape and labelling, not volume. The HVPT literature
-   recorded its own stimuli for exactly this reason.
+   recorded its own stimuli for exactly this reason. Provenance matters as much
+   as quantity: citation form (isolated, stressed) is where stød is reliably
+   realised, so mined running speech is the weakest source for the one contrast
+   that has no alternative.
 2. Spaced scheduling on top of the persisted history: per-contrast intervals and
    due dates, so the app can say when a contrast is due rather than only which is
    weakest. (Persistence itself landed in `mdd/progress.py`.)

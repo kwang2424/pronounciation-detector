@@ -1,0 +1,79 @@
+# Everyday French sentences for tier 1 (native negative control).
+# Weighted toward the contrasts in the French profile: /y/ vs /u/, the three
+# nasal vowels, nasal vs oral, close vs open mid vowels, and é vs è.
+Je voudrais une bière, s'il vous plaît.
+Tu as vu le film hier soir ?
+Il fait beau aujourd'hui.
+Nous allons au marché ce matin.
+Elle habite dans une petite maison.
+Le train part à huit heures.
+J'ai perdu mes clés dans la rue.
+Vous pouvez répéter, s'il vous plaît ?
+Il y a beaucoup de monde ici.
+Ma sœur travaille dans un bureau.
+Le chat dort sur le lit.
+Nous avons mangé du pain et du fromage.
+Elle a mis son manteau bleu.
+Est-ce que tu viens avec nous ?
+Je ne comprends pas cette question.
+Le professeur explique la leçon.
+Il pleut depuis ce matin.
+Ils sont partis sans rien dire.
+La fenêtre est ouverte.
+J'aime bien ce restaurant.
+Tout le monde est content.
+Elle lit un livre intéressant.
+Mon frère joue de la guitare.
+Nous partons en vacances en août.
+Le magasin ferme à sept heures.
+Il a bu tout le jus d'orange.
+Elle porte une jupe rouge.
+Les enfants jouent dans le jardin.
+Je vais prendre le bus.
+C'est une bonne idée.
+Le vin blanc est très bon.
+Il faut que tu manges quelque chose.
+Elle chante une chanson douce.
+Nous avons besoin de plus de temps.
+Le pont est fermé pour travaux.
+J'ai laissé mon sac à la maison.
+Vous êtes très gentil, merci.
+Le lundi, je commence tôt.
+Elle a un beau sourire.
+Il court tous les matins.
+La soupe est trop chaude.
+Nous prenons le petit déjeuner à sept heures.
+Ce livre appartient à mon voisin.
+Le ciel est gris ce soir.
+Il a écrit une longue lettre.
+Elle veut apprendre l'espagnol.
+Les fleurs sentent très bon.
+Je préfère le thé au café.
+Mon oncle habite à Lyon.
+La route est longue jusqu'à Paris.
+Il a ouvert la porte doucement.
+Nous avons vu un beau paysage.
+Elle prépare le dîner ce soir.
+Le musée ouvre à dix heures.
+J'ai oublié son nom.
+Tu peux venir demain matin ?
+Le chien attend devant la maison.
+Elle a répondu très rapidement.
+Nous cherchons un bon hôtel.
+Il parle français couramment.
+La fête commence à vingt heures.
+Je bois un verre d'eau.
+Le pantalon est trop petit pour lui.
+Elle a acheté une nouvelle voiture.
+Ils vont au cinéma samedi soir.
+Le pain est encore chaud.
+Nous devons partir maintenant.
+Il a mis du sucre dans son café.
+La lune est pleine ce soir.
+Elle travaille dur tous les jours.
+Elle a mangé une pomme ce matin.
+Il y a une école tout près d'ici.
+Mon téléphone ne marche plus du tout.
+La bonne réponse est plus simple que ça.
+Cette robe jaune lui va très bien.
+Le port est calme à cette heure.

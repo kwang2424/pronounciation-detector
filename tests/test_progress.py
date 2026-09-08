@@ -204,3 +204,48 @@ def test_compare_names_the_difference():
     assert "no stød" in compare(smooth, analyse(*_signal("smooth")))
     assert "SILENT GAP" in compare(smooth, analyse(*_signal("closure")))
     assert "stød" in compare(smooth, analyse(*_signal("creak")))
+
+
+def test_a_voice_that_creaks_on_everything_is_not_diagnostic():
+    """Measured on real Danish neural voices: one creaked on 9 of 12 words,
+    including three with no stød. Reading its per-pair creak as stød would have
+    enabled a contrast the voice does not render."""
+    from mdd.acoustics import analyse, baseline
+
+    creaky_everywhere = [analyse(*_signal("creak")) for _ in range(9)]
+    creaky_everywhere += [analyse(*_signal("smooth")) for _ in range(3)]
+    b = baseline("creaky-voice", creaky_everywhere)
+    assert b.creak_rate == 0.75
+    assert not b.diagnostic
+    assert "NOT a stød distinction" in b.verdict()
+
+
+def test_a_voice_that_never_creaks_is_not_diagnostic_either():
+    from mdd.acoustics import analyse, baseline
+
+    b = baseline("flat", [analyse(*_signal("smooth")) for _ in range(12)])
+    assert b.creak_rate == 0.0
+    assert not b.diagnostic
+    assert "renders no stød" in b.verdict()
+
+
+def test_sparse_creak_is_diagnostic():
+    from mdd.acoustics import analyse, baseline
+
+    words = [analyse(*_signal("creak"))] + [analyse(*_signal("smooth")) for _ in range(11)]
+    b = baseline("sparse", words)
+    assert b.diagnostic
+
+
+def test_voiced_duration_ignores_padding():
+    """Neural TTS pads clips with near-silence — the real Danish clips ran ~1.5s
+    for monosyllables. Total duration would describe the padding, not the word."""
+    import numpy as np
+
+    from mdd.acoustics import analyse
+
+    sig, sr = _signal("smooth")
+    padded = np.concatenate([np.zeros(sr), sig, np.zeros(sr)])
+    a = analyse(padded, sr)
+    assert a.duration > 2.4, "clip really is padded"
+    assert a.voiced_duration < 0.7, "voiced span excludes the padding"
