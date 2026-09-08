@@ -13,7 +13,7 @@ if __name__ == "__main__":
 import argparse  # noqa: E402
 from collections import Counter, defaultdict  # noqa: E402
 
-from .common import CACHE, DEFAULT_LANG, THRESHOLDS, analyse_cached, fmt_pct, is_flagged, key, load_sentences, results_name, write_results  # noqa: E402
+from .common import CACHE, DEFAULT_LANG, THRESHOLDS, analyse_cached, cache_stats, fmt_pct, is_flagged, key, load_sentences, results_name, write_results  # noqa: E402
 from .tts import default_voices, synth_missing  # noqa: E402
 
 FPR_TARGET = 0.05
@@ -205,7 +205,15 @@ def main():
     summary["recommended_tau_median_voice"] = robust
     summary["median_voice"] = detail
     path = write_results(results_name("native_control", a.lang), summary, markdown(summary))
-    print(f"\nwrote {path}")
+    hit, miss = cache_stats["hit"], cache_stats["miss"]
+    if miss == 0:
+        print(f"\nAll {hit} clips came from cache — the numbers are unchanged by design. "
+              f"A code change that alters scoring moves the cache key; if you expected "
+              f"one to, check you are on the branch that has it.")
+    else:
+        print(f"\nRe-analysed {miss} of {hit + miss} clips "
+              f"({hit} from cache) — these numbers are new.")
+    print(f"wrote {path}")
     print(markdown(summary))
 
 

@@ -308,3 +308,48 @@ def test_no_per_voice_breakdown_when_voices_agree():
                          "disagreement": {"edge:a": 0.08, "edge:b": 0.09}},
     }
     assert "Per-voice breakdown" not in markdown(summary)
+
+
+def test_run_reports_whether_it_recomputed_anything(tmp_path):
+    """"Did that take effect?" has been answered by eye twice and got it wrong
+    both times — once when a forgotten VERSION replayed stale reports, once when
+    a report-only change correctly produced identical numbers and looked like the
+    same failure. The run should just say so."""
+    import json
+
+    from eval import common
+    from mdd.pipeline import VERSION
+
+    wav = tmp_path / "x.wav"
+    wav.write_bytes(b"")
+    signature = common.canonical_signature("Il fait beau", "fr")
+    (tmp_path / "x").with_suffix(f".v{VERSION}-{signature}.json").write_text(
+        json.dumps({"phones": [], "overall": 1.0}), encoding="utf-8")
+
+    common.cache_stats.update(hit=0, miss=0)
+    common.analyse_cached("Il fait beau", wav, tmp_path / "x.json", "fr")
+    assert common.cache_stats == {"hit": 1, "miss": 0}
+
+
+def test_a_scoring_change_makes_the_next_run_a_cache_miss(tmp_path):
+    """The counter is only useful if the key really moves when scoring changes."""
+    import json
+
+    from eval import common
+    from mdd import languages
+    from mdd.pipeline import VERSION
+
+    wav = tmp_path / "x.wav"
+    wav.write_bytes(b"")
+    signature = common.canonical_signature("Il fait beau", "fr")
+    (tmp_path / "x").with_suffix(f".v{VERSION}-{signature}.json").write_text(
+        json.dumps({"phones": [], "overall": 1.0}), encoding="utf-8")
+
+    original = languages.PROFILES["fr"]
+    languages.PROFILES["fr"] = languages.LanguageProfile(
+        **{**original.__dict__, "allow": {}})
+    try:
+        assert common.canonical_signature("Il fait beau", "fr") != signature, \
+            "the cached entry must no longer match, forcing a recompute"
+    finally:
+        languages.PROFILES["fr"] = original

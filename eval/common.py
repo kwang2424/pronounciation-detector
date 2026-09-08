@@ -33,6 +33,13 @@ def key(*parts: str) -> str:
     return hashlib.sha1("\x1f".join(parts).encode("utf-8")).hexdigest()[:16]
 
 
+#: Cache hits/misses for the current process, so a run can say plainly whether it
+#: recomputed anything. Comparing result tables by eye to answer "did that take
+#: effect?" has gone wrong twice: once when a forgotten VERSION replayed stale
+#: reports, and once when a report-only change correctly produced identical
+#: numbers and looked like the same failure.
+cache_stats = {"hit": 0, "miss": 0}
+
 _rec = None
 
 
@@ -85,9 +92,12 @@ def analyse_cached(text: str, wav_path: Path, json_path: Path,
     json_path = json_path.with_suffix(f".v{VERSION}-{canonical_signature(text, lang)}.json")
     if json_path.exists():
         try:
-            return json.loads(json_path.read_text(encoding="utf-8"))
+            rep = json.loads(json_path.read_text(encoding="utf-8"))
+            cache_stats["hit"] += 1
+            return rep
         except json.JSONDecodeError:
             json_path.unlink()   # truncated by an interrupted run; recompute
+    cache_stats["miss"] += 1
     rep = analyse(text, str(wav_path), recognizer(), lang=lang)
     json_path.parent.mkdir(parents=True, exist_ok=True)
     json_path.write_text(json.dumps(rep, ensure_ascii=False), encoding="utf-8")
