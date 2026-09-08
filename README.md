@@ -42,7 +42,7 @@ training. The alignment, GOP and staircase code is language-neutral.
 | | espeak G2P | Perception training | Evaluated |
 |---|---|---|---|
 | German | reliable | 4 / 4 contrasts | yes, tiers 1-2 below |
-| French | reliable | 5 / 5 contrasts | not yet |
+| French | reliable | 5 / 5 contrasts | tier 1 ready to run |
 | Danish | good segments, unreliable stød | 4 / 5 contrasts | not yet |
 | Korean | unreliable | disabled | not yet |
 
@@ -94,6 +94,7 @@ Two automated tiers from section 7 of the design doc (the third, real learner re
 
 ```bash
 python -m eval.native_control      # tier 1: native TTS voices, every flag is a false positive -> FPR per threshold
+python -m eval.native_control --lang fr   # same for French; results land in eval/results/fr/
 python -m eval.synthetic_errors    # tier 2: inject each error from the catalogue via espeak phonemes -> recall + diagnosis
 ```
 
@@ -122,8 +123,19 @@ is kept in `eval/results/v1/`; `python -m eval.compare eval/results/v1 eval/resu
 
 The thresholds and inventory mappings the eval produced (`GOP_THRESHOLD`,
 `INS_MIN_PROB`, the ʏ→y and ɛː→eː folds, coda-r acceptance) were tuned on
-**German only**. Danish and Korean inherit the machinery but not the calibration:
-the tiers above need re-running per language before their numbers mean anything.
+**German only**. Every other language inherits the machinery but not the
+calibration.
+
+Tier 1 is now language-parameterised, so `python -m eval.native_control --lang fr`
+produces a French false-positive rate and a recommended threshold (70 sentences
+are included; it needs internet for the neural voices and downloads the 1.2 GB
+recogniser on first run). German keeps its original paths, voice spellings and
+clip cache so its committed baseline stays comparable. Tier 2 is still
+German-only: it needs a French error catalogue in `eval/errors.py` before it can
+report recall.
+
+French production diagnosis itself already works (`--lang fr`) — it is the
+*numbers* that are not yet French.
 
 ## Honest limits
 

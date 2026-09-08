@@ -3,7 +3,7 @@
 Voice specs:
   edge:<name>    Microsoft neural voices via edge-tts (needs internet), e.g. edge:de-DE-KatjaNeural
   sapi:<name>    Windows built-in voices via System.Speech, e.g. sapi:Microsoft Hedda Desktop
-  espeak         espeak-ng text synthesis (offline, robotic)
+  espeak[:<v>]   espeak-ng text synthesis (offline, robotic), e.g. espeak:fr
 
 `Espeak` also exposes phoneme-level access, which the synthetic-error tier uses to
 inject a specific mispronunciation and synthesise the result.
@@ -19,16 +19,28 @@ from pathlib import Path
 import numpy as np
 import soundfile as sf
 
-EDGE_DEFAULT = ["de-DE-KatjaNeural", "de-DE-ConradNeural", "de-DE-AmalaNeural", "de-DE-KillianNeural"]
+EDGE_DEFAULT_BY_LANG = {
+    "de": ["de-DE-KatjaNeural", "de-DE-ConradNeural", "de-DE-AmalaNeural", "de-DE-KillianNeural"],
+    "fr": ["fr-FR-DeniseNeural", "fr-FR-HenriNeural", "fr-FR-EloiseNeural", "fr-CA-SylvieNeural"],
+    "da": ["da-DK-ChristelNeural", "da-DK-JeppeNeural"],
+}
+EDGE_DEFAULT = EDGE_DEFAULT_BY_LANG["de"]
 SAPI_DEFAULT = "Microsoft Hedda Desktop"
 SEP = "\t"   # phoneme separator we ask espeak for; never occurs in its mnemonics
 
 
-def default_voices() -> list[str]:
-    v = [f"edge:{n}" for n in EDGE_DEFAULT]
-    if platform.system() == "Windows":
-        v.append(f"sapi:{SAPI_DEFAULT}")
-    return v + ["espeak"]
+def default_voices(lang: str = "de") -> list[str]:
+    names = EDGE_DEFAULT_BY_LANG.get(lang)
+    if not names:
+        raise ValueError(f"no default TTS voices for {lang!r}; pass --voices")
+    v = [f"edge:{n}" for n in names]
+    if platform.system() == "Windows" and lang == "de":
+        v.append(f"sapi:{SAPI_DEFAULT}")     # the bundled SAPI voice is German
+    if lang == "de":
+        return v + ["espeak"]        # unchanged spelling keeps German's clip cache valid
+    from mdd.languages import get
+
+    return v + [f"espeak:{get(lang).synth_voice}"]
 
 
 def synth_missing(voice: str, items: list[tuple[str, Path]]) -> None:
@@ -44,7 +56,8 @@ def synth_missing(voice: str, items: list[tuple[str, Path]]) -> None:
     elif kind == "sapi":
         _sapi(name, items)
     elif kind == "espeak":
-        esp = Espeak()
+        # "espeak" alone keeps the German default; "espeak:fr" picks a voice.
+        esp = Espeak(name or "de")
         for t, p in items:
             esp.synth_text(t, p)
     else:
