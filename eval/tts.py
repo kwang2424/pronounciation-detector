@@ -21,7 +21,11 @@ import soundfile as sf
 
 EDGE_DEFAULT_BY_LANG = {
     "de": ["de-DE-KatjaNeural", "de-DE-ConradNeural", "de-DE-AmalaNeural", "de-DE-KillianNeural"],
-    "fr": ["fr-FR-DeniseNeural", "fr-FR-HenriNeural", "fr-FR-EloiseNeural", "fr-CA-SylvieNeural"],
+    # Metropolitan French only: the canonical transcription is espeak's fr-fr, and
+    # Quebec French differs systematically (diphthongised long vowels, affricated
+    # /t d/ before /i y/). A fr-CA voice measures as a 20% disagreement rate that
+    # is a dialect mismatch, not a pipeline error.
+    "fr": ["fr-FR-DeniseNeural", "fr-FR-HenriNeural", "fr-FR-EloiseNeural"],
     "da": ["da-DK-ChristelNeural", "da-DK-JeppeNeural"],
 }
 EDGE_DEFAULT = EDGE_DEFAULT_BY_LANG["de"]
