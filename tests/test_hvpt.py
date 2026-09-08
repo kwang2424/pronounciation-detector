@@ -78,7 +78,13 @@ def test_talker_never_repeats_on_consecutive_trials():
     assert all(a != b for a, b in itertools.pairwise(talkers))
 
 
-def test_practice_is_steered_toward_the_weakest_contrast():
+def test_practice_favours_the_weakest_contrast_without_drilling_it_exclusively():
+    """Taking the single lowest-accuracy contrast every time meant one wrong
+    answer pinned every later trial to it: at 100% on three and 80% on a fourth,
+    only the fourth was ever served. Interleaving also retains better than
+    blocking, so the strong ones must keep appearing."""
+    from collections import Counter
+
     session = Session("da", seed=6)
     ids = session.contrast_ids
     for cid in ids:                                  # every contrast seen once, all wrong
@@ -88,9 +94,11 @@ def test_practice_is_steered_toward_the_weakest_contrast():
     for _ in range(10):
         trial = session.next_trial(strong)
         session.record(trial, trial.target)
-    picked = {session.next_trial().contrast_id for _ in range(10)}
-    assert strong not in picked
-    assert picked <= set(weak)
+
+    picks = Counter(session.next_trial().contrast_id for _ in range(300))
+    assert set(picks) == set(ids), "every contrast must keep appearing"
+    assert picks[strong] < min(picks[c] for c in weak), "the strong one appears least"
+    assert picks[strong] > 15, "but it is not dropped: interleaving beats blocking"
 
 
 def test_report_records_accuracy_and_the_worst_confusion():
@@ -194,3 +202,59 @@ def test_a_different_backend_that_also_collapses_the_pair_is_still_rejected():
     report = check_contrast(profile.contrast("stod"), profile, audio=True,
                             render=_collapsed, talkers=["v1", "v2"])
     assert not report.usable
+
+
+def test_duration_is_part_of_the_distance():
+    """Spectra are resampled to a fixed frame count, which discards duration —
+    and for a length contrast duration IS the contrast. A talker rendering
+    Stadt and Staat at the same length passed the gate until this was added."""
+    import math
+
+    from mdd.validate import SEPARATION_THRESHOLD, acoustic_separation
+
+    sr = 22050
+
+    def tone(dur, freq=200):
+        n = int(sr * dur)
+        return [int(math.sin(2 * math.pi * freq * i / sr) * 20000) for i in range(n)]
+
+    clips = {("Staat", "good"): tone(0.60), ("Stadt", "good"): tone(0.30),
+             ("Staat", "flat"): tone(0.45), ("Stadt", "flat"): tone(0.45)}
+
+    def render(word, _lang, talker):
+        return clips[(word, str(talker))]
+
+    per = acoustic_separation("Staat", "Stadt", "de", render=render,
+                              talkers=["good", "flat"], per_talker=True)
+    assert per["good"] >= SEPARATION_THRESHOLD, "differing lengths must separate"
+    assert per["flat"] < SEPARATION_THRESHOLD, "identical lengths must not"
+
+
+def test_a_talker_who_merges_a_pair_is_not_used_for_it(tmp_path):
+    """Separability is often one voice's property, not the language's, so the
+    exclusion has to be per talker rather than per contrast."""
+    import numpy as np
+    import soundfile as sf
+
+    from mdd.recorded import RecordedTalkers, wordlist
+
+    sr = 22050
+
+    def write(word, talker, dur, freq):
+        d = tmp_path / "de" / talker
+        d.mkdir(parents=True, exist_ok=True)
+        t = np.linspace(0, dur, int(sr * dur), endpoint=False)
+        sf.write(str(d / f"{word}.wav"),
+                 (np.sin(2 * np.pi * freq * t) * 20000).astype(np.int16), sr)
+
+    for i, word in enumerate(wordlist(get("de"))):
+        write(word, "good", 0.30 + 0.02 * i, 150 + 9 * i)
+        write(word, "flat", 0.30 + 0.02 * i, 160 + 9 * i)
+    write("Staat", "flat", 0.45, 300)          # this talker merges the length pair
+    write("Stadt", "flat", 0.45, 300)
+
+    session = Session("de", seed=1, recordings=RecordedTalkers(tmp_path, "de"))
+    assert session._pair_talkers[("Stadt", "Staat")] == ["good"]
+    used = {str(t.talker) for t in (session.next_trial("vowel-length") for _ in range(40))
+            if set(t.choices) == {"Stadt", "Staat"}}
+    assert used == {"good"}, "the merging talker must not serve that pair"

@@ -139,8 +139,12 @@ def test_practice_is_steered_by_lifetime_not_just_this_sitting(store):
                          next(c for c in t.choices if c != t.target))
     first.save()
 
+    from collections import Counter
+
     second = Session("da", seed=7, progress=Progress.load(store.path))
-    assert {second.next_trial().contrast_id for _ in range(8)} == {"soft-d"}
+    picks = Counter(second.next_trial().contrast_id for _ in range(300))
+    assert picks["soft-d"] == max(picks.values()), "lifetime accuracy drives the weighting"
+    assert picks["soft-d"] > 1.5 * max(v for k, v in picks.items() if k != "soft-d")
 
 
 def test_save_is_a_no_op_without_a_store_or_without_trials(store):

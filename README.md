@@ -219,7 +219,9 @@ French-specific acoustic model rather than a better threshold.
   uses whatever is there automatically. That is still synthetic; recorded native
   talkers via `mdd/recorded.py` remain the goal, and drop into the same directory.
   Either way the audio goes through the same gate — better-sounding stimuli are
-  not exempt from having to separate the pair.
+  not exempt from having to separate the pair, and separability is checked **per
+  talker**, so one voice that merges a pair is dropped for that pair rather than
+  disabling the contrast.
 - `mdd/validate.py` checks that a pair is rendered *distinctly*. It cannot check
   that it is rendered *correctly*. Two demonstrated cases: espeak renders Korean
   fortis stops as uvulars, and it can be forced to "distinguish" Danish stød by

@@ -26,6 +26,7 @@ from __future__ import annotations
 import random
 import uuid
 from dataclasses import dataclass, field
+from itertools import combinations
 
 from .languages import Contrast, LanguageProfile, get
 from .progress import Progress
@@ -35,6 +36,10 @@ MIN_CHOICES = 2
 MAX_CHOICES = 4
 #: Consecutive correct answers before difficulty increases (2-down-1-up).
 STEP_UP_AFTER = 2
+#: Floor on a contrast's selection weight, so one you have mastered still recurs
+#: instead of dropping out. Interleaved practice retains better than blocked, and
+#: a contrast never revisited is a contrast quietly being forgotten.
+EXPLORE_FLOOR = 0.25
 
 
 @dataclass
@@ -133,6 +138,11 @@ class Session:
         #: stays a record of *this* sitting while steering uses the long run.
         self.prior: dict[str, ContrastStats] = {}
         self._last_practiced: dict[str, float] = {}
+        #: (pair) -> talkers that actually render it distinctly. Separability is
+        #: often one voice's property, not the language's: a talker who gives
+        #: Stadt and Staat the same vowel length makes that pair unanswerable for
+        #: that talker while others handle it fine.
+        self._pair_talkers: dict[tuple[str, ...], list] = {}
         self._streak = 0
         self._n_choices = MIN_CHOICES
         self._last_talker: Talker | None = None
@@ -183,6 +193,7 @@ class Session:
             report = check_contrast(playable, self.profile, audio=True,
                                     render=self.recordings.renderer(),
                                     talkers=self.recordings.talkers)
+            self._record_pair_talkers(playable)
         else:
             report = check_contrast(contrast, self.profile, audio=audio_check)
         ok = {(c.word_a, c.word_b) for c in report.usable_pairs}
@@ -217,13 +228,32 @@ class Session:
             merged.confusions[key] = merged.confusions.get(key, 0) + n
         return merged
 
-    def _talker_pool(self):
+    def _record_pair_talkers(self, contrast: Contrast) -> None:
+        """Note which talkers separate each set, so trials only use those."""
+        from .validate import SEPARATION_THRESHOLD, acoustic_separation
+
+        for group in contrast.pairs:
+            ok = set(self.recordings.talkers)
+            for a, b in combinations(group, 2):
+                per = acoustic_separation(a, b, self.profile.synth_voice,
+                                          render=self.recordings.renderer(),
+                                          talkers=self.recordings.talkers,
+                                          per_talker=True) or {}
+                ok &= {t for t, r in per.items() if r >= SEPARATION_THRESHOLD}
+            if ok:
+                self._pair_talkers[tuple(group)] = sorted(ok)
+
+    def _talker_pool(self, group: tuple[str, ...] | None = None):
         if self.recordings is not None:
+            if group is not None:
+                allowed = self._pair_talkers.get(tuple(group))
+                if allowed:
+                    return list(allowed)
             return self.recordings.talkers
         return list(TALKERS)
 
-    def _pick_talker(self):
-        pool = self._talker_pool()
+    def _pick_talker(self, group: tuple[str, ...] | None = None):
+        pool = self._talker_pool(group)
         options = [t for t in pool if t != self._last_talker] or pool
         talker = self.rng.choice(options)
         self._last_talker = talker
@@ -240,24 +270,30 @@ class Session:
         choices = self.rng.sample(list(group), n)
         target = self.rng.choice(choices)
         self.rng.shuffle(choices)
-        return Trial(contrast_id, target, tuple(choices), self._pick_talker(),
+        return Trial(contrast_id, target, tuple(choices), self._pick_talker(tuple(group)),
                      self.profile.code, self.recordings, self.profile.synth_voice)
 
     def _weakest_contrast(self) -> str:
-        """Spend trials where lifetime accuracy is lowest, unpractised ones first.
+        """Sample toward the weakest contrast, without drilling it exclusively.
 
-        Ties break toward the least recently practised contrast, which spaces
-        practice across a training block instead of grinding one contrast.
+        Taking the single lowest-accuracy contrast every time meant one wrong
+        answer pinned every subsequent trial to that contrast until it caught up
+        — at 100% on three contrasts and 80% on a fourth, only the fourth was
+        ever served. That is also the wrong shape of practice: interleaving
+        beats blocking for retention, so every contrast should keep appearing
+        while the weak one appears more often.
+
+        Weight is (1 - accuracy) + EXPLORE_FLOOR, so a perfect contrast still
+        comes up about a fifth as often as one at 20%, and unpractised
+        contrasts go first.
         """
         unseen = [c for c in self.pools if self.combined(c).seen == 0]
         if unseen:
             return self.rng.choice(unseen)
 
-        def rank(cid: str):
-            st = self.combined(cid)
-            return (st.accuracy, self._last_practiced.get(cid, 0.0), -st.seen)
-
-        return min(self.pools, key=rank)
+        ids = list(self.pools)
+        weights = [(1.0 - self.combined(c).accuracy) + EXPLORE_FLOOR for c in ids]
+        return self.rng.choices(ids, weights=weights, k=1)[0]
 
     def record(self, trial: Trial, choice: str | int) -> bool:
         correct = trial.is_correct(choice)

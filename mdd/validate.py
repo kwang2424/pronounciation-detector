@@ -40,6 +40,19 @@ _NFFT = 512
 _HOP = 128
 
 
+#: Weight on relative duration in the distance. Spectra are resampled to a fixed
+#: frame count so their shape can be compared, which throws duration away — and
+#: for a length contrast (Stadt/Staat) duration IS the contrast, so the gate was
+#: structurally unable to see a talker who rendered both the same length. A
+#: listener found one that did. 0.6 puts a 50% duration difference on a par with
+#: a clear spectral difference.
+DURATION_WEIGHT = 0.6
+
+
+def _duration(samples, sr: int = 22050) -> float:
+    return len(samples) / sr
+
+
 def _spectrum(samples):
     import numpy as np
 
@@ -61,10 +74,16 @@ def _spectrum(samples):
     return S / norm if norm else S
 
 
-def _distance(a, b) -> float:
+def _distance(a, b, dur_a: float = 0.0, dur_b: float = 0.0) -> float:
+    """Spectral shape plus relative duration, so length contrasts are visible."""
     import numpy as np
 
-    return float(np.linalg.norm(a - b))
+    spectral = float(np.linalg.norm(a - b))
+    longest = max(dur_a, dur_b)
+    if longest <= 0:
+        return spectral
+    relative = abs(dur_a - dur_b) / longest
+    return float(np.hypot(spectral, DURATION_WEIGHT * relative))
 
 
 #: A render backend: (word, lang, talker) -> int16 samples. Swappable so the same
@@ -79,18 +98,21 @@ def espeak_renderer(word: str, lang: str, talker) -> Sequence[int]:
 
 
 def _renders(word: str, lang: str, talker, reps: int, render: Renderer):
+    """[(spectrum, duration), ...] — duration kept because the spectrum drops it."""
     out = []
     for _ in range(reps):
-        spec = _spectrum(render(word, lang, talker))
+        samples = render(word, lang, talker)
+        spec = _spectrum(samples)
         if spec is not None:
-            out.append(spec)
+            out.append((spec, _duration(samples)))
     return out
 
 
 def acoustic_separation(word_a: str, word_b: str, lang: str,
                         reps: int = 3, n_talkers: int = 3,
                         render: Renderer | None = None,
-                        talkers: Sequence | None = None) -> float | None:
+                        talkers: Sequence | None = None,
+                        per_talker: bool = False):
     """Between-word distance / same-word distance, averaged over talkers.
 
     ~1.0 means the pair is indistinguishable from the renderer's own jitter. A
@@ -102,6 +124,11 @@ def acoustic_separation(word_a: str, word_b: str, lang: str,
 
     `render` and `talkers` override the espeak backend; pass a renderer that
     returns samples for a word and a list of whatever your talkers are keyed by.
+
+    `per_talker` returns {talker: ratio} instead of the mean. Whether a pair is
+    separable is often a property of one voice rather than of the language: a
+    talker who gives Stadt and Staat the same vowel length makes that pair
+    unanswerable for that talker alone.
     """
     from . import synth
 
@@ -116,14 +143,16 @@ def acoustic_separation(word_a: str, word_b: str, lang: str,
         rb = _renders(word_b, lang, talker, reps, render)
         if not ra or not rb:
             continue
-        within = [_distance(x, y) for x, y in combinations(ra, 2)]
-        within += [_distance(x, y) for x, y in combinations(rb, 2)]
-        between = [_distance(x, y) for x in ra for y in rb]
+        within = [_distance(x[0], y[0], x[1], y[1]) for x, y in combinations(ra, 2)]
+        within += [_distance(x[0], y[0], x[1], y[1]) for x, y in combinations(rb, 2)]
+        between = [_distance(x[0], y[0], x[1], y[1]) for x in ra for y in rb]
         # max() so a deterministic backend (zero jitter) is scored against an
         # absolute floor instead of dividing by zero and reporting "unknown".
         floor = max(sum(within) / len(within) if within else 0.0, MIN_FLOOR)
-        ratios.append((sum(between) / len(between)) / floor)
-    return sum(ratios) / len(ratios) if ratios else None
+        ratios.append(((sum(between) / len(between)) / floor, talker))
+    if per_talker:
+        return {t: r for r, t in ratios}
+    return sum(r for r, _ in ratios) / len(ratios) if ratios else None
 
 
 @dataclass

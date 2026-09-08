@@ -59,15 +59,35 @@ per-contrast accuracy + confusion tracking
 - **`mdd/validate.py`** — the gate. Two checks, described in §5.
 - **`mdd/hvpt.py`** — trial construction, talker rotation, staircase, stats.
 
-## 4. Adaptive difficulty
+## 4. Adaptive difficulty and contrast selection
 
 A 2-down-1-up staircase over the **number of answer choices** (2→4): widen after
 two consecutive correct, narrow after one wrong. This converges near ~70%
 accuracy, which is the "desirable difficulty" region — hard enough to force
 discrimination, not so hard the learner is guessing.
 
-Trials are steered to the weakest contrast: unseen contrasts first, then lowest
-accuracy. Talker never repeats on consecutive trials.
+Contrast selection is **weighted sampling**, not argmin. Taking the single
+lowest-accuracy contrast every time meant one wrong answer pinned every later
+trial to it — at 100% on three contrasts and 80% on a fourth, only the fourth was
+ever served, which a learner noticed immediately. It is also the wrong shape of
+practice: interleaving retains better than blocking, so a mastered contrast has
+to keep recurring rather than dropping out. Weight is
+`(1 - accuracy) + EXPLORE_FLOOR`, which gives the weak contrast roughly twice the
+trials while the others still appear about a fifth of the time each. Unpractised
+contrasts still go first, and the talker never repeats on consecutive trials.
+
+### Duration, and per-talker separability
+
+The spectral distance resamples every clip to a fixed frame count so shapes can
+be compared, which throws duration away — and for a length contrast
+(Stadt/Staat) duration *is* the contrast. The gate was therefore structurally
+unable to see a talker who rendered both at the same length, and a listener
+found one that did. Distance now combines spectral shape with relative duration.
+
+That failure was also **one voice's**, not the language's, so the exclusion is
+per talker: `Session` records which talkers separate each set and never serves a
+pair with a talker that merges it. The contrast stays trainable through the
+talkers that do render it.
 
 ## 5. The gate: only train contrasts the synthesiser can render
 
