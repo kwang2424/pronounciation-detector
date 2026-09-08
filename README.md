@@ -209,6 +209,24 @@ learners need most. Perception training uses no model and is unaffected.
 Production scoring for French stays unreliable, and probably needs a
 French-specific acoustic model rather than a better threshold.
 
+## Reading a production report
+
+Not every flag is worth the same. The production tab annotates each with a
+confidence read from the committed evaluation results (`mdd/reliability.py`):
+
+- **noisy** — the recogniser does this to native speakers too. German `d`→`t` is
+  the case to know: /d/ is falsely flagged on only 2.8% of its native
+  occurrences, but 10 of those 11 flags were specifically `→t`, so seeing exactly
+  that substitution is weak evidence.
+- **fair** / **solid** — progressively less likely to be the recogniser's own error.
+- **unknown** — that language has not been evaluated yet, stated rather than guessed.
+
+It also names the **blind spots**, because their absence from a report means
+nothing. At the default threshold German final devoicing (`final_t→d`,
+`final_k→ɡ`, `final_p→b`) and vowel length (`long_a→short`) are caught **0%** of
+the time however wrong the speaker is. A clean report is not evidence those were
+right.
+
 ## Honest limits
 
 - Perception stimuli default to espeak **formant synthesis**, which is

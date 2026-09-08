@@ -14,6 +14,7 @@ from mdd.languages import PROFILES  # noqa: E402
 from mdd.pipeline import GOP_THRESHOLD, analyse  # noqa: E402
 from mdd.progress import Progress  # noqa: E402
 from mdd.recorded import RecordedTalkers, default_root  # noqa: E402
+from mdd.reliability import blind_spots, reliability  # noqa: E402
 
 _recognizer = None
 _TMP = Path(tempfile.gettempdir()) / "mdd-stimuli"
@@ -52,12 +53,26 @@ def run(lang_name: str, text: str, audio_path: str | None, ipa: str, threshold: 
     bad_words = {p["word"] for p in flagged}
     highlighted = [(w, "check" if w in bad_words else None) for w in _words(text)]
 
-    rows = [[p["word"], p["canonical"] or "—", p["realized"] or "—", p["op"],
+    # A flag is not evidence on its own: on native German the recogniser reports
+    # /d/ as [t] in 2.8% of its occurrences, so that row deserves less weight
+    # than one for a phone it never mis-hears.
+    rows = [[p["word"], p["canonical"] or "—", p["realized"] or "—",
+             reliability(p["canonical"], code, p["realized"]).level,
              "" if p["gop"] is None else f"{p['gop']:.2f}", p["tip"]] for p in flagged]
     score = rep["overall"]
     summary = (f"**Score: {score:.0%}** · {len(flagged)} issue{'s' if len(flagged) != 1 else ''} "
                f"across {len(bad_words)} word{'s' if len(bad_words) != 1 else ''}"
                if flagged else f"**Score: {score:.0%}** · no issues detected")
+    noisy = [f"`{p['canonical']}`→`{p['realized']}`" for p in flagged
+             if reliability(p["canonical"], code, p["realized"]).level == "noisy"]
+    if noisy:
+        summary += ("\n\n⚠️ " + ", ".join(dict.fromkeys(noisy)) +
+                    " occur on native speech too — weigh those rows less.")
+    blind = blind_spots(code)
+    if blind:
+        worst = ", ".join(f"`{k}`" for k, v in sorted(blind.items(), key=lambda kv: kv[1])[:4])
+        summary += (f"\n\n*Not detectable at all ({worst}): a clean report is not "
+                    f"evidence these were right.*")
     ipa_view = f"**Expected:** `{rep['canonical']}`\n\n**Heard:** `{rep['realized']}`"
     return summary, highlighted, rows, ipa_view
 
@@ -217,9 +232,10 @@ with gr.Blocks(title="Pronunciation trainer") as demo:
                 summary = gr.Markdown()
                 words = gr.HighlightedText(label="Words", color_map={"check": "#f59e0b"},
                                            show_legend=False)
-                table = gr.Dataframe(headers=["Word", "Expected", "Heard", "Op", "GOP", "Tip"],
-                                     datatype=["str"] * 6, label="Flagged sounds", wrap=True,
-                                     column_widths=["14%", "11%", "11%", "8%", "8%", "48%"])
+                table = gr.Dataframe(
+                    headers=["Word", "Expected", "Heard", "Confidence", "GOP", "Tip"],
+                    datatype=["str"] * 6, label="Flagged sounds", wrap=True,
+                    column_widths=["13%", "10%", "10%", "12%", "7%", "48%"])
                 ipa_view = gr.Markdown()
         lang.change(on_lang_change, lang, text)
         btn.click(run, [lang, text, audio, ipa, threshold], [summary, words, table, ipa_view])
