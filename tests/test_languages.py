@@ -118,3 +118,31 @@ def test_french_nasal_omission_is_diagnosed():
     rep = analyse("pain", realized_ipa="pɛn", lang="fr")
     tips = [p["tip"] for p in rep["phones"] if p["flagged"]]
     assert any("nasal vowel" in t for t in tips)
+
+
+def test_french_r_allophones_are_accepted_but_english_r_is_not():
+    """French /ʁ/ devoices to [χ] next to voiceless consonants and phrase-finally;
+    the recogniser has no [χ] and spells it h or x. Same phoneme, and the largest
+    single-phone false-positive source in the native control (16.3%)."""
+    for realised in ("pɛχ", "pɛh", "pɛx"):
+        rep = analyse("père", realized_ipa=realised, lang="fr")
+        assert not [p for p in rep["phones"] if p["flagged"]], f"{realised} is an allophone"
+    flagged = [(p["canonical"], p["realized"])
+               for p in analyse("père", realized_ipa="pɛɹ", lang="fr")["phones"] if p["flagged"]]
+    assert ("ʁ", "ɹ") in flagged, "the English rhotic is a real error and must stay flagged"
+
+
+def test_french_coda_r_may_drop_but_onset_r_may_not():
+    """/ʁ/ drops from a final obstruent+liquid cluster in ordinary speech
+    (quatre -> [kat]); dropping it before a vowel is a learner error."""
+    assert not [p for p in analyse("quatre", realized_ipa="kat", lang="fr")["phones"] if p["flagged"]]
+    assert [p for p in analyse("rue", realized_ipa="y", lang="fr")["phones"] if p["flagged"]]
+
+
+def test_allophone_acceptance_is_per_language():
+    """German has no such allowance: its r is a different phoneme with different
+    realisations, and [x] is a separate German phoneme entirely (ach-Laut)."""
+    assert get("de").allow == {}
+    flagged = [(p["canonical"], p["realized"])
+               for p in analyse("rot", realized_ipa="xoːt", lang="de")["phones"] if p["flagged"]]
+    assert flagged, "German must still flag x for r"

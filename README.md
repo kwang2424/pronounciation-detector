@@ -146,7 +146,7 @@ clip cache so its committed baseline stays comparable. Tier 2 is still
 German-only: it needs a French error catalogue in `eval/errors.py` before it can
 report recall.
 
-### French tier-1 result: perception yes, production not yet
+### French tier-1 result: improving, still not ready
 
 The first French run gave a pooled natural-voice false-positive rate of **12.8%
 at τ=-2**, against German's 1.6%. Three things were behind it, two of them the
@@ -166,13 +166,34 @@ harness's fault:
    nonsensical "recommended τ = -8". The report now also recommends from the
    **median voice** and prints the spread.
 
-What remains is real and not fixable by tuning: the recogniser mis-hears French
-**nasal vowels** badly (ɛ̃ flagged 41.7% of the time, heard as `a` ×24; ɑ̃ 22.4%;
-ɔ̃ 19.4%) and the front rounded vowels too (`y` 30.4%, `ø` 45%, `œ` 44.4%). Those
-are exactly the contrasts French learners need most. Perception training does not
-use the recogniser and is unaffected; production scoring for French should be
-treated as unreliable until it is re-run and, most likely, until a
-French-specific acoustic model replaces the multilingual one.
+After the liaison fix the insertion row fell from 101 flags to 60 and lost its
+liaison consonants entirely (was z×21 t×15, now ə×12 ŋ×8 l×6). Per voice:
+
+| voice | disagreement | FPR at τ=-2 |
+|---|---|---|
+| fr-FR-Henri | 8.5% → **7.1%** | 4.0% → **2.6%** |
+| fr-FR-Denise | 9.3% → **7.9%** | 5.6% → **4.2%** |
+| fr-FR-Eloise | 47.1% → 45.4% | 30.1% → 28.8% |
+
+Henri is now within reach of German's 1.6%. **Eloise is not a French problem** —
+two voices sit near 7% disagreement and one at 45%, which is a property of that
+talker, not the language. Until it is understood, read the median-voice
+recommendation rather than the pooled one.
+
+A second fix followed from the per-phone table and is **not yet re-measured**:
+/ʁ/ was the largest single-phone source at 16.3%, heard as ∅×16, h×11, x×6.
+Those are allophones, not errors — French /ʁ/ devoices to [χ] next to voiceless
+consonants and phrase-finally (the recogniser has no [χ] and spells it h or x),
+and it drops from a final obstruent+liquid cluster in ordinary speech (quatre →
+[kat]). Both are now accepted; the English rhotic [ɹ] and a dropped onset r stay
+flagged.
+
+What is left after all that is the recogniser itself, and tuning will not touch
+it: **nasal vowels** (ɛ̃ 34.4%, heard as `a` ×22; ɔ̃ 25.8%; ɑ̃ 23.1%) and **front
+rounded vowels** (y 31.0%, ø 40%, œ 40.7%) — exactly the contrasts French
+learners need most. Perception training uses no model and is unaffected.
+Production scoring for French stays unreliable, and probably needs a
+French-specific acoustic model rather than a better threshold.
 
 ## Honest limits
 
