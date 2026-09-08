@@ -62,3 +62,49 @@ def test_tokenisation_follows_the_language():
 def test_missing_sentence_file_says_what_is_needed():
     with pytest.raises(FileNotFoundError, match="no evaluation sentences"):
         load_sentences(lang="ko")
+
+
+# ---------------------------------------------------------------- preflight
+def test_preflight_flags_language_switches():
+    """espeak phonemises loanwords as the other language. The tokeniser strips
+    the markers, so the wrong phonemes pass silently into the canonical side —
+    two of these were in the first draft of the French sentences."""
+    from eval.preflight import check_transcription
+
+    assert check_transcription("fr")["switches"] == []
+    assert check_transcription("de")["switches"] == []
+
+
+def test_preflight_reports_thin_contrast_phones():
+    from eval.preflight import THIN_PHONE, check_transcription
+
+    counts = check_transcription("fr")["contrast_phone_counts"]
+    assert counts, "French contrasts should name phones"
+    assert all(n >= THIN_PHONE for n in counts.values()), \
+        f"a phone seen under {THIN_PHONE} times gives a per-phone FPR too noisy to read"
+
+
+def test_preflight_counts_realisation_only_phones_as_zero_not_missing():
+    """A Contrast lists the whole confusable set, including realisations that
+    never appear in canonical transcription — German [ɐ] is one, since espeak
+    writes coda r as ʁ. Reporting that as an error would be a false alarm."""
+    from eval.preflight import check_transcription
+
+    counts = check_transcription("de")["contrast_phone_counts"]
+    assert counts.get("ɐ") == 0
+    assert counts.get("ʁ", 0) > 0
+
+
+def test_preflight_environment_check_runs_without_the_model():
+    from eval.preflight import check_environment
+
+    results = check_environment("fr")
+    assert any("voices configured" in label for _, label in results)
+    assert all(isinstance(ok, bool) for ok, _ in results)
+
+
+def test_preflight_handles_a_language_with_no_sentences():
+    from eval.preflight import check_transcription
+
+    with pytest.raises(FileNotFoundError):
+        check_transcription("ko")

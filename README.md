@@ -94,6 +94,7 @@ Two automated tiers from section 7 of the design doc (the third, real learner re
 
 ```bash
 python -m eval.native_control      # tier 1: native TTS voices, every flag is a false positive -> FPR per threshold
+python -m eval.preflight fr        # check a language is ready before a long run (no model needed)
 python -m eval.native_control --lang fr   # same for French; results land in eval/results/fr/
 python -m eval.synthetic_errors    # tier 2: inject each error from the catalogue via espeak phonemes -> recall + diagnosis
 ```
@@ -125,6 +126,14 @@ The thresholds and inventory mappings the eval produced (`GOP_THRESHOLD`,
 `INS_MIN_PROB`, the ʏ→y and ɛː→eː folds, coda-r acceptance) were tuned on
 **German only**. Every other language inherits the machinery but not the
 calibration.
+
+`python -m eval.preflight <lang>` checks a language is ready before you spend the
+time: which dependencies are missing, whether the recogniser is already cached, a
+runtime estimate, and a model-free look at the canonical side — espeak
+language-switch artifacts and contrast phones too rare for a per-phone rate to
+mean anything. It found two English loanwords (`pull`, `week-end`) in the first
+draft of the French sentences that espeak phonemises *as English*, which would
+have quietly corrupted those comparisons.
 
 Tier 1 is now language-parameterised, so `python -m eval.native_control --lang fr`
 produces a French false-positive rate and a recommended threshold (70 sentences
