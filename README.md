@@ -100,7 +100,10 @@ python -m eval.synthetic_errors    # tier 2: inject each error from the catalogu
 ```
 
 Reports land in `eval/results/*.md` (plus JSON). Synthesised audio and model outputs are cached under
-`eval/cache/`, so re-running a threshold sweep is instant. `--n 20` limits the sentence count for a quick pass;
+`eval/cache/`, so re-running a threshold sweep is instant. The analysis cache key includes a hash of the
+canonical phone sequence, so changing G2P, the tokeniser or a language profile invalidates the affected
+entries automatically and leaves untouched languages cached — an earlier version keyed only on a
+hand-maintained `VERSION`, which was forgotten once and silently replayed a whole run's stale numbers. `--n 20` limits the sentence count for a quick pass;
 `--voices` picks TTS backends (`edge:<voice>` needs internet, `sapi:<voice>` is Windows-only, `espeak` is offline).
 
 ### Current numbers (pipeline v3)
