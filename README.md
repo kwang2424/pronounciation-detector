@@ -21,6 +21,11 @@ python -m mdd.pipeline "mad gade" --lang da --ipa "mad ɡadə"
 
 # perception progress is kept in ~/.mdd/progress.json ($MDD_PROGRESS to move it)
 
+# better perception stimuli: neural voices instead of espeak (needs internet)
+python -m eval.make_stimuli fr        # ~9 talkers from 3 voices x 3 speaking rates
+python -m eval.make_stimuli fr --force   # re-render (after a clip-quality change)
+python -m eval.make_stimuli de
+
 # recorded native talkers — the only route for stød
 python -m mdd.recorded da --script              # word list to hand a speaker
 python -m mdd.recorded da --root ./recordings   # what those recordings cover
@@ -115,7 +120,8 @@ Tier 1, 510 native clips from 5 natural voices (8830 phones), every flag a false
 | phone-level FPR | 1.6% | 2.6% | 4.3% |
 | sentences with ≥1 false flag | 24% | 33% | 49% |
 
-Tier 2, 157 errors injected into espeak phoneme strings: recall 64% at the default τ
+Tier 2, 157 errors injected into espeak phoneme strings (**note**: rows whose
+injection espeak does not render are untestable, see below): recall 64% at the default τ
 (61% at -2), exact diagnosis 50%. Reliable (≥85% recall):
 ü_long→uː, ü_short→ʊ, ö_long→oː, ö_short→ɔ, ach→k, ach→h, z→voiced_z, ei→iː, eu→uː. Weak: ich→sch (25%), final_t→d (0%), final_k→ɡ (0%), final_p→b (0%), long_a→short (0%), schwa→eː (38%). Final devoicing is not detectable
 with this recogniser at all: it hears a word-final voiced stop as its devoiced twin, the "bias toward canonical" risk
@@ -175,18 +181,27 @@ liaison consonants entirely (was z×21 t×15, now ə×12 ŋ×8 l×6). Per voice:
 | fr-FR-Denise | 9.3% → **7.9%** | 5.6% → **4.2%** |
 | fr-FR-Eloise | 47.1% → 45.4% | 30.1% → 28.8% |
 
-Henri is now within reach of German's 1.6%. **Eloise is not a French problem** —
-two voices sit near 7% disagreement and one at 45%, which is a property of that
-talker, not the language. Until it is understood, read the median-voice
-recommendation rather than the pooled one.
+Henri is at **2.6%** and Denise **4.1%** at τ=-2, against German's 1.6%.
 
-A second fix followed from the per-phone table and is **not yet re-measured**:
+**Eloise is now the dominant problem and is not a French one**: 26.8% against
+their 2.6-4.1%, and 42.8% disagreement against their ~7%. She is roughly
+two-thirds of the pooled figure. Without her the two remaining voices average
+about 3.4% at τ=-2, which is a usable production scorer. The report now prints a
+**per-voice phone breakdown** whenever one talker disagrees more than twice as
+often as another: if the same phones dominate every voice it is a degree
+difference (rate, recording), and if different phones dominate it is an accent
+and that voice is measuring something other than the pipeline. Read the
+median-voice recommendation, not the pooled one, until this is settled.
+
+A second fix followed from the per-phone table and **has now been measured**:
 /ʁ/ was the largest single-phone source at 16.3%, heard as ∅×16, h×11, x×6.
 Those are allophones, not errors — French /ʁ/ devoices to [χ] next to voiceless
 consonants and phrase-finally (the recogniser has no [χ] and spells it h or x),
 and it drops from a final obstruent+liquid cluster in ordinary speech (quatre →
-[kat]). Both are now accepted; the English rhotic [ɹ] and a dropped onset r stay
-flagged.
+[kat]). Accepting them halved it: **16.3% → 8.0%**, from second in the table to
+seventh, with h and x gone entirely and ∅ down 16 → 7. The seven that remain are
+pre-vocalic, where dropping r really is an error, and the English rhotic [ɹ]
+stays flagged.
 
 What is left after all that is the recogniser itself, and tuning will not touch
 it: **nasal vowels** (ɛ̃ 34.4%, heard as `a` ×22; ɔ̃ 25.8%; ɑ̃ 23.1%) and **front
@@ -195,12 +210,59 @@ learners need most. Perception training uses no model and is unaffected.
 Production scoring for French stays unreliable, and probably needs a
 French-specific acoustic model rather than a better threshold.
 
+## Reading a production report
+
+Not every flag is worth the same. The production tab annotates each with a
+confidence read from the committed evaluation results (`mdd/reliability.py`):
+
+- **noisy** — the recogniser does this to native speakers too. German `d`→`t` is
+  the case to know: /d/ is falsely flagged on only 2.8% of its native
+  occurrences, but 10 of those 11 flags were specifically `→t`, so seeing exactly
+  that substitution is weak evidence.
+- **fair** / **solid** — progressively less likely to be the recogniser's own error.
+- **unknown** — that language has not been evaluated yet, stated rather than guessed.
+
+It also names genuine **blind spots**, where absence from a report means nothing
+— but only once they are shown to be blind spots. Tier 2 injects errors into
+espeak phoneme strings, and an injection espeak does not render produces
+identical audio, so the pipeline scores 0% recall on an error that is not in the
+signal. Measured: `final_k→ɡ` separates at **0.93x** against synthesis jitter,
+`final_t→d` at 1.01x and `final_p→b` at 0.99x — all silent, so three of the four
+"undetectable" rows were **untestable, not undetectable**. `long_a→short`
+separates at 7.91x and is a real blind spot.
+
+`eval/synthetic_errors.py` now measures this per row and reports `n/a ⚠️ not
+rendered` instead of a recall figure, and the app withholds any blind-spot claim
+that predates the measurement rather than repeating one that may be an
+artifact.
+
+### Hearing the target
+
+**🔊 Hear it said correctly** plays the whole sentence; clicking a row in the
+flagged-sounds table plays just that word; **Slow** renders both at about
+three-quarters speed. It uses one neural voice per language (German Katja,
+French Henri — the lowest false-positive voice in the French evaluation) and
+falls back to espeak when offline, saying so under the player. Clips are cached
+in `~/.mdd/reference` (override with `MDD_REFERENCE`).
+
+It is one synthetic voice, so treat it as a model of the sentence, not the
+authority on every contrast: a German neural voice was caught merging
+Staat/Stadt. For vowel length and the other perception contrasts, the
+perception tab's many talkers are the better reference.
+
 ## Honest limits
 
-- Perception stimuli are **formant-synthesised**, not recorded. The HVPT
-  literature measured its effects on natural multi-talker speech; synthetic
-  voices are a usable bootstrap, not a replication. `Talker` and `synthesize` in
-  `mdd/synth.py` are the only things a recorded-audio backend has to replace.
+- Perception stimuli default to espeak **formant synthesis**, which is
+  intelligible enough to validate a contrast mechanically but thin and robotic to
+  train on — the first thing a real user noticed. `python -m eval.make_stimuli
+  <lang>` renders the contrast words with neural voices at several speaking rates
+  (nine talkers from three voices for French) into `~/.mdd/stimuli`, and the app
+  uses whatever is there automatically. That is still synthetic; recorded native
+  talkers via `mdd/recorded.py` remain the goal, and drop into the same directory.
+  Either way the audio goes through the same gate — better-sounding stimuli are
+  not exempt from having to separate the pair, and separability is checked **per
+  talker**, so one voice that merges a pair is dropped for that pair rather than
+  disabling the contrast.
 - `mdd/validate.py` checks that a pair is rendered *distinctly*. It cannot check
   that it is rendered *correctly*. Two demonstrated cases: espeak renders Korean
   fortis stops as uvulars, and it can be forced to "distinguish" Danish stød by

@@ -13,6 +13,9 @@ from mdd.hvpt import PerceptionUnavailable, Session  # noqa: E402
 from mdd.languages import PROFILES  # noqa: E402
 from mdd.pipeline import GOP_THRESHOLD, analyse  # noqa: E402
 from mdd.progress import Progress  # noqa: E402
+from mdd.recorded import RecordedTalkers, default_root  # noqa: E402
+from mdd.reference import describe, speak  # noqa: E402
+from mdd.reliability import blind_spots, reliability  # noqa: E402
 
 _recognizer = None
 _TMP = Path(tempfile.gettempdir()) / "mdd-stimuli"
@@ -35,11 +38,13 @@ def get_recognizer():
 # --------------------------------------------------------------------------
 def run(lang_name: str, text: str, audio_path: str | None, ipa: str, threshold: float):
     code = LANGS[lang_name]
-    text = text.strip()
+    # Gradio hands back None for a textbox the user cleared, not "".
+    text = (text or "").strip()
+    ipa = (ipa or "").strip()
     if not text:
         raise gr.Error(f"Enter a {lang_name} sentence first.")
-    if ipa.strip():
-        rep = analyse(text, realized_ipa=ipa.strip(), threshold=threshold, lang=code)
+    if ipa:
+        rep = analyse(text, realized_ipa=ipa, threshold=threshold, lang=code)
     elif audio_path:
         rep = analyse(text, audio_path, get_recognizer(), threshold=threshold, lang=code)
     else:
@@ -49,18 +54,65 @@ def run(lang_name: str, text: str, audio_path: str | None, ipa: str, threshold: 
     bad_words = {p["word"] for p in flagged}
     highlighted = [(w, "check" if w in bad_words else None) for w in _words(text)]
 
-    rows = [[p["word"], p["canonical"] or "—", p["realized"] or "—", p["op"],
+    # A flag is not evidence on its own: on native German the recogniser reports
+    # /d/ as [t] in 2.8% of its occurrences, so that row deserves less weight
+    # than one for a phone it never mis-hears.
+    rows = [[p["word"], p["canonical"] or "—", p["realized"] or "—",
+             reliability(p["canonical"], code, p["realized"]).level,
              "" if p["gop"] is None else f"{p['gop']:.2f}", p["tip"]] for p in flagged]
     score = rep["overall"]
     summary = (f"**Score: {score:.0%}** · {len(flagged)} issue{'s' if len(flagged) != 1 else ''} "
                f"across {len(bad_words)} word{'s' if len(bad_words) != 1 else ''}"
                if flagged else f"**Score: {score:.0%}** · no issues detected")
+    noisy = [f"`{p['canonical']}`→`{p['realized']}`" for p in flagged
+             if reliability(p["canonical"], code, p["realized"]).level == "noisy"]
+    if noisy:
+        summary += ("\n\n⚠️ " + ", ".join(dict.fromkeys(noisy)) +
+                    " occur on native speech too — weigh those rows less.")
+    blind = blind_spots(code)
+    if blind:
+        worst = ", ".join(f"`{k}`" for k, v in sorted(blind.items(), key=lambda kv: kv[1])[:4])
+        summary += (f"\n\n*Not detectable at all ({worst}): a clean report is not "
+                    f"evidence these were right.*")
     ipa_view = f"**Expected:** `{rep['canonical']}`\n\n**Heard:** `{rep['realized']}`"
     return summary, highlighted, rows, ipa_view
 
 
 def _words(text: str) -> list[str]:
     return [w for w in (t.strip(".,;:!?\"'()") for t in text.split()) if w]
+
+
+def hear_sentence(lang_name: str, text: str | None, slow: bool):
+    """Play the sentence as it should sound, to compare against your recording."""
+    text = (text or "").strip()
+    if not text:
+        raise gr.Error(f"Enter a {lang_name} sentence first.")
+    ref = speak(text, LANGS[lang_name], bool(slow))
+    return str(ref.path), describe(ref)
+
+
+def _cell(table, row: int, col: int):
+    """Read one cell from whatever shape Gradio hands back for a Dataframe."""
+    try:
+        if hasattr(table, "iloc"):
+            return table.iloc[row, col]
+        if isinstance(table, dict):
+            return table["data"][row][col]
+        return table[row][col]
+    except (IndexError, KeyError, TypeError):
+        return None
+
+
+def hear_word(lang_name: str, slow: bool, table, evt: gr.SelectData):
+    """Clicking a flagged row plays that word said correctly — the 'expected'
+    column as sound rather than as an IPA symbol."""
+    index = evt.index
+    row = index[0] if isinstance(index, (list, tuple)) else index
+    word = _cell(table, row, 0)
+    if not word or word == "—":
+        return None, ""
+    ref = speak(str(word), LANGS[lang_name], bool(slow))
+    return str(ref.path), f"**{word}** · " + describe(ref)
 
 
 def on_lang_change(lang_name: str):
@@ -71,19 +123,49 @@ def on_lang_change(lang_name: str):
 # --------------------------------------------------------------------------
 # Perception tab
 # --------------------------------------------------------------------------
+def _stimuli_for(code: str) -> RecordedTalkers | None:
+    """Prefer recorded or neural clips over formant synthesis when any exist.
+
+    espeak is intelligible enough to validate a contrast mechanically but thin to
+    train on, which is the first thing a real user noticed. Anything in the
+    stimuli directory — neural TTS from `eval.make_stimuli`, or real recordings —
+    is used instead, and still has to pass the same gate.
+    """
+    try:
+        store = RecordedTalkers(default_root(), code)
+    except OSError:
+        return None
+    return store if len(store.talkers) >= 2 else None
+
+
 def start_session(lang_name: str):
     code = PERCEPTION_LANGS[lang_name]
     store = Progress.load()
+    stimuli = _stimuli_for(code)
     try:
-        session = Session(code, progress=store)
+        session = Session(code, progress=store, recordings=stimuli)
     except PerceptionUnavailable as exc:
-        raise gr.Error(str(exc))
+        if stimuli is None:
+            raise gr.Error(str(exc))
+        # The recorded set failed the gate; fall back rather than blocking practice.
+        gr.Warning(f"Recorded stimuli unusable ({exc}); falling back to synthesis.")
+        stimuli = None
+        try:
+            session = Session(code, progress=store)
+        except PerceptionUnavailable as exc2:
+            raise gr.Error(str(exc2)) from exc2
     note = ""
     if session.skipped:
         skipped = ", ".join(f"`{k}`" for k in session.skipped)
         note = (f"\n\n*Not trained: {skipped} — the synthesiser cannot render "
                 f"{'them' if len(session.skipped) > 1 else 'it'} distinctly, so a trial "
                 f"would be unanswerable.*")
+    if stimuli is not None:
+        note += (f"\n\n*Stimuli: {len(stimuli.talkers)} recorded/neural talkers "
+                 f"from {default_root()}.*")
+    else:
+        note += ("\n\n*Stimuli: espeak formant synthesis — robotic. Run "
+                 "`python -m eval.make_stimuli " + code + "` for neural voices.*")
     if store.load_error:
         note += (f"\n\n*Starting from an empty history: {store.load_error}. "
                  f"Past practice is not lost — the existing file is left untouched.*")
@@ -98,7 +180,7 @@ def _serve(session: Session, message: str):
     """Build a new trial and the UI updates that present it."""
     trial = session.next_trial()
     contrast = session.profile.contrast(trial.contrast_id)
-    path = trial.render(_TMP / f"trial-{len(session.history)}-{trial.talker.variant}.wav")
+    path = trial.render(_TMP / f"trial-{len(session.history)}-{trial.talker_id}.wav")
     heading = f"### {contrast.label}\n{contrast.why}"
     return (trial, str(path), heading,
             gr.update(choices=list(trial.choices), value=None, visible=True),
@@ -171,6 +253,12 @@ with gr.Blocks(title="Pronunciation trainer") as demo:
             with gr.Column():
                 lang = gr.Dropdown(list(LANGS), value="German", label="Language")
                 text = gr.Textbox(label="German sentence", value=PROFILES["de"].example, lines=2)
+                with gr.Row():
+                    hear = gr.Button("🔊 Hear it said correctly")
+                    slow = gr.Checkbox(label="Slow", value=False)
+                reference = gr.Audio(label="Correct pronunciation", interactive=False,
+                                     autoplay=True, type="filepath")
+                reference_note = gr.Markdown()
                 audio = gr.Audio(label="Your recording", sources=["microphone", "upload"],
                                  type="filepath")
                 with gr.Accordion("Advanced", open=False):
@@ -184,11 +272,18 @@ with gr.Blocks(title="Pronunciation trainer") as demo:
                 summary = gr.Markdown()
                 words = gr.HighlightedText(label="Words", color_map={"check": "#f59e0b"},
                                            show_legend=False)
-                table = gr.Dataframe(headers=["Word", "Expected", "Heard", "Op", "GOP", "Tip"],
-                                     datatype=["str"] * 6, label="Flagged sounds", wrap=True,
-                                     column_widths=["14%", "11%", "11%", "8%", "8%", "48%"])
+                table = gr.Dataframe(
+                    headers=["Word", "Expected", "Heard", "Confidence", "GOP", "Tip"],
+                    datatype=["str"] * 6, wrap=True,
+                    label="Flagged sounds — click a row to hear that word said correctly",
+                    column_widths=["13%", "10%", "10%", "12%", "7%", "48%"])
+                word_reference = gr.Audio(label="Selected word, said correctly",
+                                          interactive=False, autoplay=True, type="filepath")
+                word_note = gr.Markdown()
                 ipa_view = gr.Markdown()
         lang.change(on_lang_change, lang, text)
+        hear.click(hear_sentence, [lang, text, slow], [reference, reference_note])
+        table.select(hear_word, [lang, slow, table], [word_reference, word_note])
         btn.click(run, [lang, text, audio, ipa, threshold], [summary, words, table, ipa_view])
 
     with gr.Tab("Hear it (perception)"):

@@ -13,7 +13,7 @@ if __name__ == "__main__":
 import argparse  # noqa: E402
 from collections import Counter, defaultdict  # noqa: E402
 
-from .common import CACHE, DEFAULT_LANG, THRESHOLDS, analyse_cached, fmt_pct, is_flagged, key, load_sentences, results_name, write_results  # noqa: E402
+from .common import CACHE, DEFAULT_LANG, THRESHOLDS, analyse_cached, cache_stats, fmt_pct, is_flagged, key, load_sentences, results_name, write_results  # noqa: E402
 from .tts import default_voices, synth_missing  # noqa: E402
 
 FPR_TARGET = 0.05
@@ -144,6 +144,23 @@ def markdown(summary: dict) -> str:
                  "trusting the pooled number."
                  if hi > 2 * lo else "The voices agree closely, so pooling is safe."),
               ""]
+    by_voice = summary.get("per_phone_by_voice") or {}
+    if len(by_voice) > 1:
+        rates = {v: summary["voices"][v]["disagreement_rate"] for v in by_voice}
+        worst = max(rates, key=rates.get)
+        best = min(rates, key=rates.get)
+        if rates[worst] > 2 * rates[best]:
+            L += ["", "## Per-voice breakdown (voices disagree by more than 2x)", "",
+                  f"`{worst}` disagrees {rates[worst] / rates[best]:.1f}x as often as "
+                  f"`{best}`. If the same phones dominate both, it is a degree "
+                  f"difference — speaking rate or recording. If different phones "
+                  f"dominate, it is an accent, and that voice is measuring something "
+                  f"other than the pipeline.", ""]
+            for v in sorted(by_voice, key=lambda k: -rates[k]):
+                top = ", ".join(f"{r['canonical']} {fmt_pct(r['rate'])}"
+                                for r in by_voice[v][:6])
+                L += [f"- **{v}** ({fmt_pct(rates[v])} disagreement): {top}"]
+            L += [""]
     L += [f"## Most falsely flagged phones (natural voices, τ = {summary['per_phone_tau']:g})", "",
           "| canonical | false flags | occurrences | rate | heard as |", "|---|---|---|---|---|"]
     for row in summary["per_phone"]:
@@ -174,6 +191,13 @@ def main():
         "all": rates(everything),
         "per_phone_tau": a.per_phone_tau,
         "per_phone": per_phone(natural or everything, a.per_phone_tau),
+        # Per voice as well as pooled: when one talker's disagreement is several
+        # times another's, the pooled table describes that talker, not the
+        # language, and the only way to tell an accent apart from a recording
+        # problem is to see which phones each voice actually loses.
+        "per_phone_by_voice": {v: per_phone(reps, a.per_phone_tau, top=8)
+                               for v, reps in reports.items()
+                               if not v.startswith("espeak")},
     }
     summary["lang"] = a.lang
     summary["recommended_tau"] = recommend(summary["natural"])
@@ -181,7 +205,15 @@ def main():
     summary["recommended_tau_median_voice"] = robust
     summary["median_voice"] = detail
     path = write_results(results_name("native_control", a.lang), summary, markdown(summary))
-    print(f"\nwrote {path}")
+    hit, miss = cache_stats["hit"], cache_stats["miss"]
+    if miss == 0:
+        print(f"\nAll {hit} clips came from cache — the numbers are unchanged by design. "
+              f"A code change that alters scoring moves the cache key; if you expected "
+              f"one to, check you are on the branch that has it.")
+    else:
+        print(f"\nRe-analysed {miss} of {hit + miss} clips "
+              f"({hit} from cache) — these numbers are new.")
+    print(f"wrote {path}")
     print(markdown(summary))
 
 

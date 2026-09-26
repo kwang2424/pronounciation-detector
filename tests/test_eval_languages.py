@@ -221,6 +221,27 @@ def test_cache_key_tracks_the_canonical_phones():
         languages.PROFILES["fr"] = original
 
 
+def test_cache_key_tracks_flagging_rules_too():
+    """A change to which realisations count as native rewrites the cached report
+    without touching a single canonical phone. Accepting French /ʁ/ allophones
+    did exactly that, and a canonical-only hash would have replayed stale
+    numbers — the same failure as the forgotten VERSION, one axis over."""
+    from eval.common import canonical_signature
+    from mdd import languages
+
+    before = canonical_signature("Il fait beau", "fr")
+    before_de = canonical_signature("Ich möchte ein Bier", "de")
+
+    original = languages.PROFILES["fr"]
+    languages.PROFILES["fr"] = languages.LanguageProfile(
+        **{**original.__dict__, "allow": {}})
+    try:
+        assert canonical_signature("Il fait beau", "fr") != before
+        assert canonical_signature("Ich möchte ein Bier", "de") == before_de
+    finally:
+        languages.PROFILES["fr"] = original
+
+
 def test_cache_key_is_stable_for_unchanged_text():
     from eval.common import canonical_signature
 
@@ -232,3 +253,103 @@ def test_cache_key_separates_languages():
 
     # Same string, different profile: must not share a cache entry.
     assert canonical_signature("son", "fr") != canonical_signature("son", "de")
+
+
+def test_report_breaks_phones_down_per_voice_when_they_diverge():
+    """When one talker disagrees several times as often as another, the pooled
+    phone table describes that talker rather than the language. French: Eloise
+    at 42.8% against Henri at 7.1%."""
+    from eval.common import THRESHOLDS
+    from eval.native_control import markdown
+
+    def rates(d):
+        return {"n_sentences": 76, "n_phones": 1200, "disagreement_rate": d,
+                "fpr": {str(t): 0.03 for t in THRESHOLDS},
+                "sentence_flag_rate": {str(t): 0.3 for t in THRESHOLDS}}
+
+    def rows(*pairs):
+        return [{"canonical": c, "false_flags": 5, "occurrences": 100, "rate": r,
+                 "heard_as": [("x", 3)]} for c, r in pairs]
+
+    summary = {
+        "thresholds": THRESHOLDS, "lang": "fr",
+        "voices": {"edge:a": rates(0.071), "edge:b": rates(0.428)},
+        "natural": rates(0.11), "all": rates(0.16),
+        "per_phone_tau": -2.0, "per_phone": rows(("y", 0.31)),
+        "per_phone_by_voice": {"edge:a": rows(("y", 0.30)), "edge:b": rows(("ə", 0.61))},
+        "recommended_tau": -6.0, "recommended_tau_median_voice": -1.0,
+        "median_voice": {"median_fpr": {str(t): 0.04 for t in THRESHOLDS},
+                         "disagreement": {"edge:a": 0.071, "edge:b": 0.428}},
+    }
+    out = markdown(summary)
+    assert "Per-voice breakdown" in out
+    assert "6.0x as often" in out
+    assert "ə 61.0%" in out
+
+
+def test_no_per_voice_breakdown_when_voices_agree():
+    """It is a diagnostic for a divergence, not noise on every report."""
+    from eval.common import THRESHOLDS
+    from eval.native_control import markdown
+
+    def rates(d):
+        return {"n_sentences": 76, "n_phones": 1200, "disagreement_rate": d,
+                "fpr": {str(t): 0.03 for t in THRESHOLDS},
+                "sentence_flag_rate": {str(t): 0.3 for t in THRESHOLDS}}
+
+    summary = {
+        "thresholds": THRESHOLDS, "lang": "de",
+        "voices": {"edge:a": rates(0.08), "edge:b": rates(0.09)},
+        "natural": rates(0.085), "all": rates(0.09),
+        "per_phone_tau": -2.0, "per_phone": [],
+        "per_phone_by_voice": {"edge:a": [], "edge:b": []},
+        "recommended_tau": -1.0, "recommended_tau_median_voice": -1.0,
+        "median_voice": {"median_fpr": {str(t): 0.03 for t in THRESHOLDS},
+                         "disagreement": {"edge:a": 0.08, "edge:b": 0.09}},
+    }
+    assert "Per-voice breakdown" not in markdown(summary)
+
+
+def test_run_reports_whether_it_recomputed_anything(tmp_path):
+    """"Did that take effect?" has been answered by eye twice and got it wrong
+    both times — once when a forgotten VERSION replayed stale reports, once when
+    a report-only change correctly produced identical numbers and looked like the
+    same failure. The run should just say so."""
+    import json
+
+    from eval import common
+    from mdd.pipeline import VERSION
+
+    wav = tmp_path / "x.wav"
+    wav.write_bytes(b"")
+    signature = common.canonical_signature("Il fait beau", "fr")
+    (tmp_path / "x").with_suffix(f".v{VERSION}-{signature}.json").write_text(
+        json.dumps({"phones": [], "overall": 1.0}), encoding="utf-8")
+
+    common.cache_stats.update(hit=0, miss=0)
+    common.analyse_cached("Il fait beau", wav, tmp_path / "x.json", "fr")
+    assert common.cache_stats == {"hit": 1, "miss": 0}
+
+
+def test_a_scoring_change_makes_the_next_run_a_cache_miss(tmp_path):
+    """The counter is only useful if the key really moves when scoring changes."""
+    import json
+
+    from eval import common
+    from mdd import languages
+    from mdd.pipeline import VERSION
+
+    wav = tmp_path / "x.wav"
+    wav.write_bytes(b"")
+    signature = common.canonical_signature("Il fait beau", "fr")
+    (tmp_path / "x").with_suffix(f".v{VERSION}-{signature}.json").write_text(
+        json.dumps({"phones": [], "overall": 1.0}), encoding="utf-8")
+
+    original = languages.PROFILES["fr"]
+    languages.PROFILES["fr"] = languages.LanguageProfile(
+        **{**original.__dict__, "allow": {}})
+    try:
+        assert common.canonical_signature("Il fait beau", "fr") != signature, \
+            "the cached entry must no longer match, forcing a recompute"
+    finally:
+        languages.PROFILES["fr"] = original

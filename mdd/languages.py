@@ -146,7 +146,12 @@ GERMAN = LanguageProfile(
         (["t"], ["d"], "Final devoicing: a written d at the end of a word is said /t/ (Hund = 'hunt')."),
         (["k"], ["ɡ"], "Final devoicing: a written g at the end of a word is said /k/ (Tag = 'tahk')."),
         (["p"], ["b"], "Final devoicing: a written b at the end of a word is said /p/ (halb = 'halp')."),
-        (["ə"], ["eː", "e", "ɛ", "aɪ"], "Unstressed final -e is a short schwa — never 'ay', never silent."),
+        # German schwa is not only word-final: it carries the ge-/be- prefixes and
+        # the -en/-er endings too. The tip used to say "final -e", which misfires on
+        # genug (/ɡəˈnuːk/), where the schwa is the prefix.
+        (["ə"], ["eː", "e", "ɛ", "aɪ"],
+         "Unstressed e is a short schwa — the 'a' in 'about'. This is the vowel in "
+         "ge-/be- prefixes, in -en/-er endings and in a final -e: never 'ay', never silent."),
         (["aɪ"], ["iː", "i"], "ei is pronounced 'eye'."),
         (["ɔʏ"], ["juː", "u", "uː", "ɛʊ", "ɔ", "ʊ"], "eu/äu is pronounced 'oy'."),
         (["pf"], ["f", "p"], "pf is one sound: close the lips for p, release straight into f."),
