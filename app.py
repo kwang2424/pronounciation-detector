@@ -19,6 +19,7 @@ from mdd.recorded import RecordedTalkers, default_root  # noqa: E402
 from mdd.reference import describe, speak  # noqa: E402
 from mdd.reliability import blind_spots, reliability  # noqa: E402
 from mdd.review import Review, gap, word_key  # noqa: E402
+from mdd import testset  # noqa: E402
 
 _recognizer = None
 _TMP = Path(tempfile.gettempdir()) / "mdd-stimuli"
@@ -355,6 +356,85 @@ def _trend(session: Session) -> str:
 
 
 # --------------------------------------------------------------------------
+# Test set tab
+# --------------------------------------------------------------------------
+TESTSET_LANGS = {PROFILES[code].name: code for code in testset.CONTRASTS}
+
+
+def _ts_card(code: str, skipped: list) -> tuple:
+    """The next take to record, its instruction card and the progress line."""
+    root = testset.default_root()
+    skip = set(skipped or [])
+    todo = testset.pending(root, code, skip)
+    done = testset.recorded(root, code)
+    plan = testset.plan(code)
+    per = []
+    for c in testset.contrasts(code):
+        n = sum(1 for t, _ in done if t.contrast == c.id)
+        per.append(f"{c.label} {n}/{sum(1 for t in plan if t.contrast == c.id)}")
+    progress = f"**{len(done)} of {len(plan)} recorded** · " + " · ".join(per)
+    if done:
+        progress += (f"\n\nScore what you have so far with `python -m eval.learner_set "
+                     f"{code}` and paste the output.")
+    if not todo:
+        left = " (some skipped — reload the tab to return to them)" if skip else ""
+        return None, f"### All done{left} 🎉", progress
+    t = todo[0]
+    c = testset.contrast(code, t.contrast)
+    version = "your best attempt" if t.kind == "best" else "the deliberate error"
+    hint = ("Listen with 🔊 first if you like, then record." if t.kind == "best" else
+            "Exaggerate a little so the error is really there — that is the label.")
+    card = (f"### {c.label} · {version} · take {t.take} of {testset.TAKES}\n\n"
+            f"{testset.instruction(t)}\n\n*{hint}*")
+    return t, card, progress
+
+
+def ts_show(lang_name: str, skipped: list):
+    take, card, progress = _ts_card(TESTSET_LANGS[lang_name], skipped)
+    return take, card, progress, None
+
+
+def ts_save(lang_name: str, take, audio_path: str | None, skipped: list):
+    if take is None:
+        raise gr.Error("Nothing left to record.")
+    if not audio_path:
+        raise gr.Error("Record the take first.")
+    try:
+        testset.save(testset.default_root(), take, audio_path)
+    except ValueError as exc:
+        raise gr.Error(str(exc))
+    return ts_show(lang_name, skipped)
+
+
+def ts_skip(lang_name: str, take, skipped: list):
+    skipped = list(skipped or []) + ([take] if take is not None else [])
+    return (skipped, *ts_show(lang_name, skipped))
+
+
+def ts_undo(lang_name: str, skipped: list):
+    """Delete the most recent take and show its card again."""
+    code = TESTSET_LANGS[lang_name]
+    done = testset.recorded(testset.default_root(), code)
+    if not done:
+        raise gr.Error("No takes recorded yet.")
+    take, path = max(done, key=lambda tp: tp[1].stat().st_mtime)
+    path.unlink()
+    _, card, progress = _ts_card(code, skipped)
+    c = testset.contrast(code, take.contrast)
+    version = "your best attempt" if take.kind == "best" else "the deliberate error"
+    card = (f"### {c.label} · {version} · take {take.take} of {testset.TAKES} (redo)\n\n"
+            f"{testset.instruction(take)}")
+    return take, card, progress, None
+
+
+def ts_hear(lang_name: str, take):
+    if take is None:
+        raise gr.Error("Nothing left to record.")
+    ref = speak(take.word, TESTSET_LANGS[lang_name])
+    return _servable(ref.path)
+
+
+# --------------------------------------------------------------------------
 #: Gradio's audio player keeps one <audio> element per component and changes the
 #: speed through `playbackRate`. Loading a new clip resets `playbackRate` to
 #: `defaultPlaybackRate` (the browser's media load algorithm), which is still 1,
@@ -452,6 +532,40 @@ with gr.Blocks(title="Pronunciation trainer") as demo:
         outs = [trial_state, stimulus, prompt, choices, feedback, stats, trend]
         start.click(start_session, plang, [session_state, *outs])
         answer.click(submit, [session_state, trial_state, choices], outs)
+
+    with gr.Tab("Test set"):
+        gr.Markdown(
+            "Record each word twice: **your best attempt**, then a **deliberate error**. "
+            "You may not be able to judge your own pronunciation, but you always know "
+            "which version you *meant*, and that is the label. It measures how well the "
+            "scorer works on your voice: how often it catches a clear error, and how often "
+            "it flags your best attempt. About 20–30 minutes for a full set; stop any time. "
+            "Recordings stay on this computer in `~/.mdd/testset`.")
+        ts_skipped = gr.State([])
+        ts_take = gr.State()
+        with gr.Row():
+            with gr.Column():
+                ts_lang = gr.Dropdown(list(TESTSET_LANGS), value="German", label="Language")
+                ts_card = gr.Markdown()
+                with gr.Row():
+                    ts_hear_btn = gr.Button("🔊 Hear the word")
+                    ts_ref = gr.Audio(label="Correct pronunciation", interactive=False,
+                                      autoplay=True, type="filepath")
+                ts_audio = gr.Audio(label="Your take", sources=["microphone", "upload"],
+                                    type="filepath")
+                with gr.Row():
+                    ts_save_btn = gr.Button("Save take ✓", variant="primary")
+                    ts_skip_btn = gr.Button("Skip")
+                    ts_undo_btn = gr.Button("Undo last")
+            with gr.Column():
+                ts_progress = gr.Markdown()
+        ts_outs = [ts_take, ts_card, ts_progress, ts_audio]
+        demo.load(ts_show, [ts_lang, ts_skipped], ts_outs)
+        ts_lang.change(lambda lang: ([], *ts_show(lang, [])), ts_lang, [ts_skipped, *ts_outs])
+        ts_save_btn.click(ts_save, [ts_lang, ts_take, ts_audio, ts_skipped], ts_outs)
+        ts_skip_btn.click(ts_skip, [ts_lang, ts_take, ts_skipped], [ts_skipped, *ts_outs])
+        ts_undo_btn.click(ts_undo, [ts_lang, ts_skipped], ts_outs)
+        ts_hear_btn.click(ts_hear, [ts_lang, ts_take], ts_ref)
 
     with gr.Tab("Coverage"):
         gr.Markdown("### What each language's G2P can and cannot be trusted with\n"

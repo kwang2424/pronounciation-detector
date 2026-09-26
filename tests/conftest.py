@@ -7,3 +7,4 @@ def _isolated_history(monkeypatch, tmp_path_factory):
     home = tmp_path_factory.mktemp("mdd-home")
     monkeypatch.setenv("MDD_REVIEW", str(home / "review.json"))
     monkeypatch.setenv("MDD_PROGRESS", str(home / "progress.json"))
+    monkeypatch.setenv("MDD_TESTSET", str(home / "testset"))

@@ -210,6 +210,33 @@ learners need most. Perception training uses no model and is unaffected.
 Production scoring for French stays unreliable, and probably needs a
 French-specific acoustic model rather than a better threshold.
 
+### Tier 4: your own voice (`eval/learner_set.py`)
+
+Tiers 1–3 use synthetic speech, and the IQRA 2026 challenge found a small set of
+real mispronunciations beat far larger synthetic corpora. But a learner cannot
+label their own recordings right or wrong: not hearing your own errors is the
+problem perception training exists for. So the **Test set** tab labels by
+*intent*: each word is recorded as your best attempt and as a deliberate,
+typical English-speaker error (Tür with an English "oo"). 8 German contrasts
+(160 takes) and 4 French (80), including the two synthetic speech could not
+test: final devoicing and vowel length.
+
+```
+python -m eval.learner_set de      # or fr; works on a partial set
+```
+
+- **caught**: deliberate errors flagged on the target sound (a certain label);
+- **false alarms**: best attempts flagged (can only err high: a best attempt that was
+  really off still counts);
+- **diagnosed**: the error was heard as the one you made;
+- **hears a diff**: the two versions were heard differently at all, which separates
+  "blind to it" from "hears it but too lenient". Vowel length is also scored with
+  length flags on, since the app never flags length alone.
+
+Faked errors are clearer than natural ones, so *caught* is an upper bound. Rates
+carry 95% intervals, and there is a threshold sweep for your voice. Recordings and
+the report stay in `~/.mdd/testset` (override with `MDD_TESTSET`).
+
 ## Reading a production report
 
 Not every flag is worth the same. The production tab annotates each with a
