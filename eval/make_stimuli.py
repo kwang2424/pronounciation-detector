@@ -57,45 +57,15 @@ SETTINGS = (
     Setting("-fast", "+12%", "+10Hz"),
 )
 
-#: Silence added around each clip. Neural TTS trims hard on isolated words, and
-#: the tail is where French carries nasality — "sans" and "son" were both
-#: reported as cut off at the end, which removes the very cue being trained.
-PAD_HEAD_MS = 60
-PAD_TAIL_MS = 220
-#: A raised edge reads as a plosive burst: "haute" was heard as starting with a
-#: p or b, though its h is silent and the clip opens on a vowel. Fading the ends
-#: removes the transient without touching the speech.
-FADE_MS = 12
+# Padding, fades and their rationale live in mdd.audio, shared with the app's
+# reference playback; re-exported here for existing callers.
+from mdd.audio import FADE_MS, PAD_HEAD_MS, PAD_TAIL_MS, polish  # noqa: E402,F401
 
 
 def talker_name(voice: str, setting: Setting) -> str:
     """A short, filesystem-safe talker id: 'fr-FR-DeniseNeural' -> 'Denise-fast'."""
     core = voice.split("-")[-1].replace("Neural", "") or voice
     return f"{core}{setting.suffix}"
-
-
-def polish(data, sr: int):
-    """Pad and fade a rendered clip.
-
-    Three separate complaints from one training session traced back to the clip
-    edges: a word heard as starting with a plosive that has no consonant, a short
-    word heard as truncated, and nasal vowels heard as cut off at the end. Padding
-    stops the tail being lost and fades stop an abrupt edge reading as a burst.
-    """
-    import numpy as np
-
-    x = np.asarray(data)
-    if x.ndim > 1:
-        x = x[:, 0]
-    x = x.astype(np.float64)
-
-    fade = max(1, int(sr * FADE_MS / 1000))
-    if x.size > 2 * fade:
-        x[:fade] *= np.linspace(0.0, 1.0, fade)
-        x[-fade:] *= np.linspace(1.0, 0.0, fade)
-    head = np.zeros(int(sr * PAD_HEAD_MS / 1000))
-    tail = np.zeros(int(sr * PAD_TAIL_MS / 1000))
-    return np.concatenate([head, x, tail]).astype(np.int16)
 
 
 async def _render(text: str, voice: str, setting: Setting, path: Path) -> None:

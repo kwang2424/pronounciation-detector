@@ -236,6 +236,20 @@ rendered` instead of a recall figure, and the app withholds any blind-spot claim
 that predates the measurement rather than repeating one that may be an
 artifact.
 
+### Hearing the target
+
+**🔊 Hear it said correctly** plays the whole sentence; clicking a row in the
+flagged-sounds table plays just that word; **Slow** renders both at about
+three-quarters speed. It uses one neural voice per language (German Katja,
+French Henri — the lowest false-positive voice in the French evaluation) and
+falls back to espeak when offline, saying so under the player. Clips are cached
+in `~/.mdd/reference` (override with `MDD_REFERENCE`).
+
+It is one synthetic voice, so treat it as a model of the sentence, not the
+authority on every contrast: a German neural voice was caught merging
+Staat/Stadt. For vowel length and the other perception contrasts, the
+perception tab's many talkers are the better reference.
+
 ## Honest limits
 
 - Perception stimuli default to espeak **formant synthesis**, which is

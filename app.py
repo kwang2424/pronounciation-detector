@@ -14,6 +14,7 @@ from mdd.languages import PROFILES  # noqa: E402
 from mdd.pipeline import GOP_THRESHOLD, analyse  # noqa: E402
 from mdd.progress import Progress  # noqa: E402
 from mdd.recorded import RecordedTalkers, default_root  # noqa: E402
+from mdd.reference import describe, speak  # noqa: E402
 from mdd.reliability import blind_spots, reliability  # noqa: E402
 
 _recognizer = None
@@ -79,6 +80,39 @@ def run(lang_name: str, text: str, audio_path: str | None, ipa: str, threshold: 
 
 def _words(text: str) -> list[str]:
     return [w for w in (t.strip(".,;:!?\"'()") for t in text.split()) if w]
+
+
+def hear_sentence(lang_name: str, text: str | None, slow: bool):
+    """Play the sentence as it should sound, to compare against your recording."""
+    text = (text or "").strip()
+    if not text:
+        raise gr.Error(f"Enter a {lang_name} sentence first.")
+    ref = speak(text, LANGS[lang_name], bool(slow))
+    return str(ref.path), describe(ref)
+
+
+def _cell(table, row: int, col: int):
+    """Read one cell from whatever shape Gradio hands back for a Dataframe."""
+    try:
+        if hasattr(table, "iloc"):
+            return table.iloc[row, col]
+        if isinstance(table, dict):
+            return table["data"][row][col]
+        return table[row][col]
+    except (IndexError, KeyError, TypeError):
+        return None
+
+
+def hear_word(lang_name: str, slow: bool, table, evt: gr.SelectData):
+    """Clicking a flagged row plays that word said correctly — the 'expected'
+    column as sound rather than as an IPA symbol."""
+    index = evt.index
+    row = index[0] if isinstance(index, (list, tuple)) else index
+    word = _cell(table, row, 0)
+    if not word or word == "—":
+        return None, ""
+    ref = speak(str(word), LANGS[lang_name], bool(slow))
+    return str(ref.path), f"**{word}** · " + describe(ref)
 
 
 def on_lang_change(lang_name: str):
@@ -219,6 +253,12 @@ with gr.Blocks(title="Pronunciation trainer") as demo:
             with gr.Column():
                 lang = gr.Dropdown(list(LANGS), value="German", label="Language")
                 text = gr.Textbox(label="German sentence", value=PROFILES["de"].example, lines=2)
+                with gr.Row():
+                    hear = gr.Button("🔊 Hear it said correctly")
+                    slow = gr.Checkbox(label="Slow", value=False)
+                reference = gr.Audio(label="Correct pronunciation", interactive=False,
+                                     autoplay=True, type="filepath")
+                reference_note = gr.Markdown()
                 audio = gr.Audio(label="Your recording", sources=["microphone", "upload"],
                                  type="filepath")
                 with gr.Accordion("Advanced", open=False):
@@ -234,10 +274,16 @@ with gr.Blocks(title="Pronunciation trainer") as demo:
                                            show_legend=False)
                 table = gr.Dataframe(
                     headers=["Word", "Expected", "Heard", "Confidence", "GOP", "Tip"],
-                    datatype=["str"] * 6, label="Flagged sounds", wrap=True,
+                    datatype=["str"] * 6, wrap=True,
+                    label="Flagged sounds — click a row to hear that word said correctly",
                     column_widths=["13%", "10%", "10%", "12%", "7%", "48%"])
+                word_reference = gr.Audio(label="Selected word, said correctly",
+                                          interactive=False, autoplay=True, type="filepath")
+                word_note = gr.Markdown()
                 ipa_view = gr.Markdown()
         lang.change(on_lang_change, lang, text)
+        hear.click(hear_sentence, [lang, text, slow], [reference, reference_note])
+        table.select(hear_word, [lang, slow, table], [word_reference, word_note])
         btn.click(run, [lang, text, audio, ipa, threshold], [summary, words, table, ipa_view])
 
     with gr.Tab("Hear it (perception)"):
