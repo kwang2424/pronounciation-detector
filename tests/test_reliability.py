@@ -87,7 +87,7 @@ def test_corrupt_results_are_survivable(tmp_path, monkeypatch):
 def test_the_report_surfaces_both_caveats():
     import app
 
-    summary, _, rows, _ = app.run("German", "du bist gut genug", None,
+    summary, _, rows, _, _ = app.run("German", "du bist gut genug", None,
                                   "t u p e s t ɡ u k e n u", -1.0)
     assert "weigh those rows less" in summary
     assert "not evidence these were right" not in summary, \
@@ -107,3 +107,17 @@ def test_results_files_still_have_the_shape_this_reads():
     synth = json.loads((RESULTS / "synthetic_errors.json").read_text(encoding="utf-8"))
     assert synth["rows"] and "recall" in synth["rows"][0]
     assert "-2.0" in synth["rows"][0]["recall"]
+
+
+def test_a_mishearable_phone_is_still_informative_for_a_new_substitution():
+    """All six native false flags on German /œ/ were [ɛ]; [ɔ] never occurred."""
+    assert reliability("œ", "de", "ɛ").level == "noisy"
+    ɔ = reliability("œ", "de", "ɔ")
+    assert ɔ.level == "fair" and "as [ɛ], not as this" in ɔ.note()
+    # Without the observed substitution, the phone's rate is all there is.
+    assert reliability("œ", "de").level == "noisy"
+
+
+def test_any_substitution_seen_natively_is_noisy_not_just_the_top_one():
+    """/eː/ was heard natively as [iː] 12 times and as [ɛ] twice."""
+    assert reliability("eː", "de", "ɛ").level == "noisy"

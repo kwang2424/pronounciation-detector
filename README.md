@@ -236,6 +236,36 @@ rendered` instead of a recall figure, and the app withholds any blind-spot claim
 that predates the measurement rather than repeating one that may be an
 artifact.
 
+### Practising: phrases and spaced review
+
+**Practice phrase** fills the sentence box with a short phrase aimed at one or two
+sounds (17 German, 17 French) and says what to listen for and which perception
+contrast it pairs with. Each phrase lists its target phones, and
+`tests/test_phrases.py` checks espeak really produces them. That check has
+teeth: French *rose* ([ʁɔz]) and *jeunes* ([ʒøn]) were dropped because espeak
+gets their vowels wrong, and the reference voice would have taught that. 👂
+phrases (Staat/Stadt, Ofen/offen) target vowel length, which the scorer cannot
+judge, so practise those by ear.
+
+**Review.** Every word flagged in a real recording joins a queue
+(`mdd/review.py`, stored in `~/.mdd/review.json`) and comes back at growing
+gaps each time you say it cleanly: 10 minutes, 1, 3, 7, 16 and 35 days. A new flag
+sends it back to the start; clean at the 35-day review, it counts as learned.
+**▶ Next review** loads the sentence holding the most due words and names the
+error to fix. The rules follow what the scorer can actually tell:
+
+- "noisy" flags (a substitution the recogniser also makes on native speech,
+  like German d→t or ö heard as [ɛ]) and inserted sounds neither add nor fail a word;
+- a clean repeat before a word is due does not advance it, since the gap is the point;
+- dry runs with typed IPA are never recorded.
+
+Below the Analyse button, **Trouble sounds** reports your flag *rate* per sound
+over 30 days (once a sound has come up in at least three recordings) and
+suggests the phrase for it you've said least.
+
+"Noisy" is substitution-aware: German /œ/ is falsely flagged on 17% of native
+speech, but always as [ɛ], so œ→[ɔ] is marked "fair" and does count.
+
 ### Hearing the target
 
 **🔊 Hear it said correctly** plays the whole sentence; clicking a row in the

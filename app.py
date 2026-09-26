@@ -12,11 +12,13 @@ import gradio as gr  # noqa: E402
 
 from mdd.hvpt import PerceptionUnavailable, Session  # noqa: E402
 from mdd.languages import PROFILES  # noqa: E402
+from mdd.phrases import CAVEATS, find, for_sound, phrases  # noqa: E402
 from mdd.pipeline import GOP_THRESHOLD, analyse  # noqa: E402
 from mdd.progress import Progress  # noqa: E402
 from mdd.recorded import RecordedTalkers, default_root  # noqa: E402
 from mdd.reference import describe, speak  # noqa: E402
 from mdd.reliability import blind_spots, reliability  # noqa: E402
+from mdd.review import Review, gap, word_key  # noqa: E402
 
 _recognizer = None
 _TMP = Path(tempfile.gettempdir()) / "mdd-stimuli"
@@ -53,7 +55,11 @@ def run(lang_name: str, text: str, audio_path: str | None, ipa: str, threshold: 
 
     flagged = [p for p in rep["phones"] if p["flagged"]]
     bad_words = {p["word"] for p in flagged}
-    highlighted = [(w, "check" if w in bad_words else None) for w in _words(text)]
+    highlighted = []
+    for w in _words(text):
+        if highlighted:
+            highlighted.append((" ", None))     # HighlightedText joins tokens as-is
+        highlighted.append((w, "check" if w in bad_words else None))
 
     # A flag is not evidence on its own: on native German the recogniser reports
     # /d/ as [t] in 2.8% of its occurrences, so that row deserves less weight
@@ -75,8 +81,20 @@ def run(lang_name: str, text: str, audio_path: str | None, ipa: str, threshold: 
         worst = ", ".join(f"`{k}`" for k, v in sorted(blind.items(), key=lambda kv: kv[1])[:4])
         summary += (f"\n\n*Not detectable at all ({worst}): a clean report is not "
                     f"evidence these were right.*")
+    if ipa:
+        summary += "\n\n*Dry run — not saved to your review history.*"
+    else:
+        # Only real recordings count: typed IPA says nothing about how you speak.
+        review = Review.load()
+        outcome = review.record(code, text, rep["phones"])
+        try:
+            review.save()
+        except OSError as exc:
+            summary += f"\n\n⚠️ Could not save review history: {exc}"
+        if outcome.summary():
+            summary += "\n\n" + outcome.summary()
     ipa_view = f"**Expected:** `{rep['canonical']}`\n\n**Heard:** `{rep['realized']}`"
-    return summary, highlighted, rows, ipa_view
+    return summary, highlighted, rows, ipa_view, review_status(lang_name)
 
 
 def _words(text: str) -> list[str]:
@@ -132,7 +150,85 @@ def hear_word(lang_name: str, slow: bool, table, evt: gr.SelectData):
 
 def on_lang_change(lang_name: str):
     profile = PROFILES[LANGS[lang_name]]
-    return gr.update(value=profile.example, label=f"{profile.name} sentence")
+    return (gr.update(value=profile.example, label=f"{profile.name} sentence"),
+            phrase_choices(lang_name), review_status(lang_name), "")
+
+
+# ---------------------------------------------------------------- practice
+def phrase_choices(lang_name: str):
+    options = [(p.label, p.text) for p in phrases(LANGS[lang_name])]
+    return gr.update(choices=options, value=None, interactive=bool(options),
+                     label="Practice phrase" if options
+                     else f"Practice phrase (none for {lang_name} yet)")
+
+
+def pick_phrase(lang_name: str, choice: str | None, current: str | None):
+    """Put the chosen phrase in the sentence box and say what to listen for."""
+    code = LANGS[lang_name]
+    phrase = find(code, choice or "")
+    if phrase is None:
+        return gr.update(value=current), ""
+    note = [f"**Listen for:** {phrase.focus}."]
+    if phrase.by_ear:
+        note.append(f"👂 Practise this one by ear: {phrase.by_ear}.")
+    if phrase.contrasts:
+        labels = {c.id: c.label for c in PROFILES[code].contrasts}
+        trained = ", ".join(labels.get(c, c) for c in phrase.contrasts)
+        note.append(f"Pairs with perception training: *{trained}*.")
+    if code in CAVEATS:
+        note.append(CAVEATS[code])
+    return phrase.text, " ".join(note)
+
+
+def next_review(lang_name: str):
+    """Load the sentence holding the most words that are due for review."""
+    code = LANGS[lang_name]
+    review = Review.load()
+    nxt = review.next_review(code)
+    if nxt is None:
+        raise gr.Error("Nothing is due for review right now.")
+    sentence, words = nxt
+    items = review.items(code)
+    focus = []
+    for w in words:
+        worst = items[word_key(w)].worst if word_key(w) in items else None
+        focus.append(f"*{w}*" + (f" (was `{worst}`)" if worst else ""))
+    return sentence, ("**Review:** focus on " + ", ".join(focus) +
+                      ". Listen with 🔊 first, then record.")
+
+
+def review_status(lang_name: str) -> str:
+    code = LANGS[lang_name]
+    review = Review.load()
+    lines = []
+    if review.load_error:
+        lines.append(f"⚠️ Review history unavailable ({review.load_error}).")
+    c = review.counts(code)
+    if not c["tracked"] and not c["learned"]:
+        lines.append("**Review queue:** empty. Words the scorer flags in your recordings "
+                     "land here and come back at spaced intervals.")
+    else:
+        head = f"**Review queue:** {c['due']} due now · {c['tracked']} in rotation"
+        if c["learned"]:
+            head += f" · {c['learned']} learned"
+        if not c["due"]:
+            wait = review.upcoming(code)
+            if wait:
+                head += f" · next due in {gap(wait)}"
+        lines.append(head)
+    trouble = review.trouble_sounds(code)[:3]
+    if trouble:
+        said = review.times_said(code)
+        parts = []
+        for phone, bad, seen in trouble:
+            part = f"`{phone}` {bad} of {seen}"
+            # The phrase for this sound you have said least, for variety.
+            options = for_sound(code, phone)
+            if options:
+                part += f" → try *{min(options, key=lambda p: said[p.text]).text}*"
+            parts.append(part)
+        lines.append("**Trouble sounds (30 days):** " + " · ".join(parts))
+    return "\n\n".join(lines)
 
 
 # --------------------------------------------------------------------------
@@ -285,6 +381,11 @@ with gr.Blocks(title="Pronunciation trainer") as demo:
         with gr.Row():
             with gr.Column():
                 lang = gr.Dropdown(list(LANGS), value="German", label="Language")
+                with gr.Row():
+                    phrase = gr.Dropdown(choices=[(p.label, p.text) for p in phrases("de")],
+                                         value=None, label="Practice phrase", scale=4)
+                    review_btn = gr.Button("▶ Next review", scale=1)
+                practice_note = gr.Markdown()
                 text = gr.Textbox(label="German sentence", value=PROFILES["de"].example, lines=2)
                 with gr.Row():
                     hear = gr.Button("🔊 Hear it said correctly")
@@ -301,6 +402,7 @@ with gr.Blocks(title="Pronunciation trainer") as demo:
                     ipa = gr.Textbox(label="Dry run: realised IPA (skips audio and model)",
                                      placeholder="ɪk mɔktə aɪn biːɹ")
                 btn = gr.Button("Analyse", variant="primary")
+                status = gr.Markdown()
             with gr.Column():
                 summary = gr.Markdown()
                 words = gr.HighlightedText(label="Words", color_map={"check": "#f59e0b"},
@@ -315,10 +417,15 @@ with gr.Blocks(title="Pronunciation trainer") as demo:
                                           elem_id="word-reference")
                 word_note = gr.Markdown()
                 ipa_view = gr.Markdown()
-        lang.change(on_lang_change, lang, text)
+        lang.change(on_lang_change, lang, [text, phrase, status, practice_note])
+        phrase.input(pick_phrase, [lang, phrase, text], [text, practice_note])
+        review_btn.click(next_review, lang, [text, practice_note]).then(
+            review_status, lang, status)
+        demo.load(review_status, lang, status)
         hear.click(hear_sentence, [lang, text, slow], [reference, reference_note])
         table.select(hear_word, [lang, slow, table], [word_reference, word_note])
-        btn.click(run, [lang, text, audio, ipa, threshold], [summary, words, table, ipa_view])
+        btn.click(run, [lang, text, audio, ipa, threshold],
+                  [summary, words, table, ipa_view, status])
 
     with gr.Tab("Hear it (perception)"):
         gr.Markdown(

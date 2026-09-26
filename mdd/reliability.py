@@ -39,6 +39,10 @@ class Reliability:
     usual_confusion: str | None = None
     #: Whether the substitution actually observed is that usual confusion.
     matches_usual: bool = False
+    #: Whether the observed substitution occurred at all on native speech.
+    seen_natively: bool = False
+    #: Set when the caller supplied what was actually heard.
+    substitution_known: bool = False
 
     @property
     def level(self) -> str:
@@ -49,9 +53,13 @@ class Reliability:
         # specifically d->[t] — so seeing exactly d->[t] is far weaker evidence
         # than the phone's overall rate suggests. A different substitution for the
         # same phone is correspondingly stronger.
-        if self.matches_usual and self.false_positive_rate >= 0.02:
+        if (self.matches_usual or self.seen_natively) and self.false_positive_rate >= 0.02:
             return "noisy"
-        if self.false_positive_rate >= NOISY_FP:
+        # A phone the recogniser often mishears is still informative when the
+        # substitution is one it never made on native speech: all six native
+        # false flags on German /œ/ were [ɛ], so œ->[ɔ] is a different story.
+        # Only without an observed substitution to compare is the rate enough.
+        if self.false_positive_rate >= NOISY_FP and not self.substitution_known:
             return "noisy"
         if self.false_positive_rate >= 0.02:
             return "fair"
@@ -69,6 +77,9 @@ class Reliability:
             extra = f", usually as [{self.usual_confusion}]" if self.usual_confusion else ""
             return f"treat with suspicion — falsely flagged on {pct} of native speech{extra}"
         if self.level == "fair":
+            if self.false_positive_rate >= NOISY_FP and self.usual_confusion:
+                return (f"fairly reliable — this phone is misheard on {pct} of native "
+                        f"speech, but as [{self.usual_confusion}], not as this")
             return f"fairly reliable — {pct} false-positive rate on native speech"
         return f"reliable — {pct} false-positive rate on native speech"
 
@@ -92,7 +103,8 @@ def _native(lang: str) -> dict[str, dict]:
         if canonical and canonical != "(insertion)":
             heard = row.get("heard_as") or []
             out[canonical] = {"rate": row.get("rate"),
-                              "heard": heard[0][0] if heard else None}
+                              "heard": heard[0][0] if heard else None,
+                              "heard_all": frozenset(h[0] for h in heard)}
     return out
 
 
@@ -139,5 +151,8 @@ def reliability(canonical: str | None, lang: str = "de",
         # Absent from the table means it was never falsely flagged in the control.
         return Reliability(0.0, None) if _native(lang) else Reliability()
     heard = row.get("heard")
+    observed = "∅" if realized in (None, "", "—") else realized
     return Reliability(row.get("rate"), heard,
-                       matches_usual=realized is not None and realized == heard)
+                       matches_usual=realized is not None and realized == heard,
+                       seen_natively=realized is not None and observed in row.get("heard_all", ()),
+                       substitution_known=realized is not None)
