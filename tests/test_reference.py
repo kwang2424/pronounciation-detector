@@ -149,3 +149,42 @@ def test_the_app_serves_clips_from_where_gradio_allows(monkeypatch, tmp_path):
     assert Path(served).parent == app._TMP
     assert not Path(served).is_relative_to(cache)
     assert Path(served).read_bytes() == next(cache.rglob("*.wav")).read_bytes()
+
+
+def _rate_after_new_clip(head: str) -> float:
+    """Set 0.5x on an <audio>, load a different clip into it, read the rate back."""
+    import base64
+    import io
+
+    sync_api = pytest.importorskip("playwright.sync_api")
+    buf = io.BytesIO()
+    sf.write(buf, np.zeros(8000, dtype=np.int16), 8000, format="WAV")
+    clip = "data:audio/wav;base64," + base64.b64encode(buf.getvalue()).decode()
+    with sync_api.sync_playwright() as pw:
+        try:
+            browser = pw.chromium.launch(executable_path="/opt/pw-browsers/chromium")
+        except Exception:
+            try:
+                browser = pw.chromium.launch()
+            except Exception as exc:
+                pytest.skip(f"no browser: {exc}")
+        page = browser.new_page()
+        page.set_content(f"<html><head>{head}</head><body><audio></audio></body></html>")
+        rate = page.evaluate("""async (clip) => {
+            const a = document.querySelector('audio');
+            const loaded = () => new Promise(r => a.addEventListener('loadedmetadata', r, {once: true}));
+            a.src = clip; await loaded();
+            a.playbackRate = 0.5;                       // what the player's speed button does
+            a.src = clip + '#next'; await loaded();     // switching to another word
+            return a.playbackRate; }""", clip)
+        browser.close()
+    return rate
+
+
+def test_the_chosen_speed_survives_switching_words():
+    """Gradio's speed button said 0.5x but the next word played at 1x."""
+    import app
+
+    assert _rate_after_new_clip("") == 1.0, "the browser behaviour this works around"
+    assert _rate_after_new_clip(app.KEEP_PLAYBACK_RATE) == 0.5
+    assert app.LAUNCH_OPTIONS["head"] is app.KEEP_PLAYBACK_RATE

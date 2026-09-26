@@ -259,6 +259,24 @@ def _trend(session: Session) -> str:
 
 
 # --------------------------------------------------------------------------
+#: Gradio's audio player keeps one <audio> element per component and changes the
+#: speed through `playbackRate`. Loading a new clip resets `playbackRate` to
+#: `defaultPlaybackRate` (the browser's media load algorithm), which is still 1,
+#: while the speed button keeps showing the old choice — so switching words at
+#: 0.5x played at 1x. Setting the default alongside keeps the choice across clips.
+KEEP_PLAYBACK_RATE = """<script>
+(() => {
+  const rate = Object.getOwnPropertyDescriptor(HTMLMediaElement.prototype, "playbackRate");
+  Object.defineProperty(HTMLMediaElement.prototype, "playbackRate", {
+    configurable: true,
+    get() { return rate.get.call(this); },
+    set(v) { rate.set.call(this, v); if (v > 0) this.defaultPlaybackRate = v; },
+  });
+})();
+</script>"""
+
+LAUNCH_OPTIONS = {"head": KEEP_PLAYBACK_RATE}
+
 with gr.Blocks(title="Pronunciation trainer") as demo:
     gr.Markdown("# Pronunciation trainer\nPerception training and production feedback, "
                 "driven by per-language contrast tables.")
@@ -272,7 +290,7 @@ with gr.Blocks(title="Pronunciation trainer") as demo:
                     hear = gr.Button("🔊 Hear it said correctly")
                     slow = gr.Checkbox(label="Slow", value=False)
                 reference = gr.Audio(label="Correct pronunciation", interactive=False,
-                                     autoplay=True, type="filepath")
+                                     autoplay=True, type="filepath", elem_id="sentence-reference")
                 reference_note = gr.Markdown()
                 audio = gr.Audio(label="Your recording", sources=["microphone", "upload"],
                                  type="filepath")
@@ -293,7 +311,8 @@ with gr.Blocks(title="Pronunciation trainer") as demo:
                     label="Flagged sounds — click a row to hear that word said correctly",
                     column_widths=["13%", "10%", "10%", "12%", "7%", "48%"])
                 word_reference = gr.Audio(label="Selected word, said correctly",
-                                          interactive=False, autoplay=True, type="filepath")
+                                          interactive=False, autoplay=True, type="filepath",
+                                          elem_id="word-reference")
                 word_note = gr.Markdown()
                 ipa_view = gr.Markdown()
         lang.change(on_lang_change, lang, text)
@@ -343,4 +362,4 @@ with gr.Blocks(title="Pronunciation trainer") as demo:
             gr.Markdown("\n".join(body))
 
 if __name__ == "__main__":
-    demo.launch()
+    demo.launch(**LAUNCH_OPTIONS)
