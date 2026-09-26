@@ -1,4 +1,6 @@
 """Hearing the target: reference audio for the expected sentence or word."""
+from pathlib import Path
+
 import numpy as np
 import pytest
 import soundfile as sf
@@ -134,3 +136,16 @@ def test_a_click_outside_the_rows_is_ignored():
         index = [9, 0]
 
     assert app.hear_word("German", False, [["x", "", "", "", "", ""]], Evt()) == (None, "")
+
+
+def test_the_app_serves_clips_from_where_gradio_allows(monkeypatch, tmp_path):
+    """The cache lives in ~/.mdd, which Gradio refuses to serve (InvalidPathError
+    on Windows); the app must hand it a copy in the temp directory instead."""
+    import app
+
+    cache = tmp_path / "home" / ".mdd" / "reference"
+    monkeypatch.setenv("MDD_REFERENCE", str(cache))
+    served, _ = app.hear_sentence("German", "Guten Tag", False)
+    assert Path(served).parent == app._TMP
+    assert not Path(served).is_relative_to(cache)
+    assert Path(served).read_bytes() == next(cache.rglob("*.wav")).read_bytes()

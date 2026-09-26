@@ -4,6 +4,7 @@ from mdd._utf8 import ensure_utf8_mode
 ensure_utf8_mode()
 
 import datetime as _dt  # noqa: E402
+import shutil  # noqa: E402
 import tempfile  # noqa: E402
 from pathlib import Path  # noqa: E402
 
@@ -82,13 +83,27 @@ def _words(text: str) -> list[str]:
     return [w for w in (t.strip(".,;:!?\"'()") for t in text.split()) if w]
 
 
+def _servable(path: Path) -> str:
+    """A copy of a cached clip that Gradio will agree to serve.
+
+    Gradio only serves files from the working directory or the system temp
+    directory unless launch() is given allowed_paths, and the reference cache
+    lives in ~/.mdd. Copying into temp, as the perception tab already does,
+    works however the app is started.
+    """
+    dest = _TMP / f"reference-{path.parent.name}-{path.name}"
+    if not dest.exists() or dest.stat().st_mtime < path.stat().st_mtime:
+        shutil.copyfile(path, dest)
+    return str(dest)
+
+
 def hear_sentence(lang_name: str, text: str | None, slow: bool):
     """Play the sentence as it should sound, to compare against your recording."""
     text = (text or "").strip()
     if not text:
         raise gr.Error(f"Enter a {lang_name} sentence first.")
     ref = speak(text, LANGS[lang_name], bool(slow))
-    return str(ref.path), describe(ref)
+    return _servable(ref.path), describe(ref)
 
 
 def _cell(table, row: int, col: int):
@@ -112,7 +127,7 @@ def hear_word(lang_name: str, slow: bool, table, evt: gr.SelectData):
     if not word or word == "—":
         return None, ""
     ref = speak(str(word), LANGS[lang_name], bool(slow))
-    return str(ref.path), f"**{word}** · " + describe(ref)
+    return _servable(ref.path), f"**{word}** · " + describe(ref)
 
 
 def on_lang_change(lang_name: str):
