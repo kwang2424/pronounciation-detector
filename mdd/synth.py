@@ -91,6 +91,8 @@ class Talker:
     variant: str
     wpm: int = 165
     pitch: int = 50
+    #: Intonation range, 0 (monotone) to 100; 50 is espeak's default.
+    range: int = 50
 
     def voice_name(self, lang: str) -> str:
         return f"{lang}+{self.variant}" if self.variant else lang
@@ -119,6 +121,7 @@ def synthesize(text: str, lang: str, talker: Talker | None = None) -> tuple[int,
                 raise SynthUnavailable(f"espeak has no voice for {lang!r}")
         _lib.espeak_SetParameter(1, ctypes.c_int(talker.wpm), 0)     # espeakRATE
         _lib.espeak_SetParameter(3, ctypes.c_int(talker.pitch), 0)   # espeakPITCH
+        _lib.espeak_SetParameter(4, ctypes.c_int(talker.range), 0)   # espeakRANGE
         rc = _lib.espeak_Synth(payload, len(payload) + 1, 0, 0, 0, _CHARS_UTF8, None, None)
         if rc != 0:                                                  # pragma: no cover
             raise SynthUnavailable(f"espeak_Synth returned {rc}")

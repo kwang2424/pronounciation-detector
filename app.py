@@ -4,12 +4,15 @@ from mdd._utf8 import ensure_utf8_mode
 ensure_utf8_mode()
 
 import datetime as _dt  # noqa: E402
+import random  # noqa: E402
 import shutil  # noqa: E402
 import tempfile  # noqa: E402
+import uuid  # noqa: E402
 from pathlib import Path  # noqa: E402
 
 import gradio as gr  # noqa: E402
 
+from mdd import fluency, prosody, testset, vocab  # noqa: E402
 from mdd.hvpt import PerceptionUnavailable, Session  # noqa: E402
 from mdd.languages import PROFILES  # noqa: E402
 from mdd.phrases import CAVEATS, find, for_sound, phrases  # noqa: E402
@@ -19,7 +22,6 @@ from mdd.recorded import RecordedTalkers, default_root  # noqa: E402
 from mdd.reference import describe, speak  # noqa: E402
 from mdd.reliability import blind_spots, reliability  # noqa: E402
 from mdd.review import Review, gap, word_key  # noqa: E402
-from mdd import testset  # noqa: E402
 
 _recognizer = None
 _TMP = Path(tempfile.gettempdir()) / "mdd-stimuli"
@@ -435,6 +437,256 @@ def ts_hear(lang_name: str, take):
 
 
 # --------------------------------------------------------------------------
+# Shadowing tab
+# --------------------------------------------------------------------------
+def sh_model(lang_name: str, text: str | None, slow: bool):
+    """The voice's rendering of the sentence, as the model to shadow."""
+    text = (text or "").strip()
+    if not text:
+        raise gr.Error(f"Enter a {lang_name} sentence, or upload a clip as the model.")
+    ref = speak(text, LANGS[lang_name], bool(slow))
+    note = describe(ref)
+    if ref.source == "espeak":
+        note += (" Its intonation is rule-based and its questions barely rise, so "
+                 "compare the melody against it loosely.")
+    return _servable(ref.path), note
+
+
+def sh_compare(model_path: str | None, take_path: str | None):
+    if not model_path:
+        raise gr.Error("Get a model first: 🔊 the sentence, or upload a clip.")
+    if not take_path:
+        raise gr.Error("Record yourself first.")
+    try:
+        c = prosody.compare(prosody.load(model_path), prosody.load(take_path))
+    except ValueError as exc:
+        raise gr.Error(str(exc))
+    note = prosody.describe(c)
+    if c.aligned == "linear":
+        note += ("\n\n*Long clip: timing was stretched evenly rather than matched "
+                 "syllable by syllable.*")
+    note += ("\n\n*A visual aid, not a score: a sentence can be said naturally in more "
+             "than one way.*")
+    return prosody.plot(c), note
+
+
+def sh_pick(lang_name: str, choice: str | None, current: str | None):
+    phrase = find(LANGS[lang_name], choice or "")
+    return phrase.text if phrase else current
+
+
+# --------------------------------------------------------------------------
+# Fluency (4/3/2) tab
+# --------------------------------------------------------------------------
+TOPICS = (
+    "Your last holiday or trip", "Your morning routine", "A film or series you liked, and why",
+    "The place you grew up", "Your plans for next weekend", "Something that annoyed you recently",
+    "Your favourite meal and how to make it", "A person who influenced you",
+    "Why you are learning this language", "A day that went wrong",
+)
+FLUENCY_COLS = ["Round", "Length", "Syllables/s", "Syllables/s speaking", "Pauses/min",
+                "Avg pause", "Syllables per run", "Longest run"]
+
+#: Counts down in the page itself, so nothing runs on the server; a short beep
+#: marks the end (the click that starts it allows the browser to play sound).
+TIMER_JS = """(rnd) => {
+  const secs = {1: 240, 2: 180, 3: 120}[parseInt(String(rnd).slice(6, 7))] || 240;
+  const el = document.querySelector('#fluency-timer');
+  if (!el) return;
+  clearInterval(window.__mddTimer);
+  const end = Date.now() + secs * 1000;
+  const tick = () => {
+    const left = Math.max(0, Math.round((end - Date.now()) / 1000));
+    el.textContent = `${Math.floor(left / 60)}:${String(left % 60).padStart(2, '0')}`;
+    if (left === 0) {
+      clearInterval(window.__mddTimer);
+      el.textContent = "Time!";
+      try {
+        const ctx = new AudioContext(), o = ctx.createOscillator();
+        o.connect(ctx.destination); o.frequency.value = 880; o.start(); o.stop(ctx.currentTime + 0.4);
+      } catch (e) {}
+    }
+  };
+  tick();
+  window.__mddTimer = setInterval(tick, 250);
+}"""
+
+
+TIMER_RESET_JS = """(rnd) => {
+  const secs = {1: 240, 2: 180, 3: 120}[parseInt(String(rnd).slice(6, 7))] || 240;
+  clearInterval(window.__mddTimer);
+  const el = document.querySelector('#fluency-timer');
+  if (el) el.textContent = `${secs / 60}:00`;
+}"""
+
+
+def _round_label(n: int) -> str:
+    return f"Round {n} · {fluency.ROUNDS[n] // 60} min"
+
+
+ROUND_LABELS = [_round_label(n) for n in fluency.ROUNDS]
+
+
+def _fmt_s(x: float) -> str:
+    return f"{int(x // 60)}:{round(x % 60):02d}" if x >= 60 else f"{x:.1f}s"
+
+
+def _fluency_rows(rounds: dict) -> list[list]:
+    rows = []
+    for n in sorted(rounds, key=int):
+        m = fluency.from_dict(rounds[n])
+        rows.append([n, _fmt_s(m.duration), f"{m.speech_rate:.2f}", f"{m.articulation_rate:.2f}",
+                     f"{m.pauses_per_min:.1f}", f"{m.mean_pause:.2f}s", f"{m.mean_run:.1f}",
+                     _fmt_s(m.longest_run)])
+    return rows
+
+
+def _fluency_change(rounds: dict) -> str:
+    done = sorted(rounds, key=int)
+    if len(done) < 2:
+        return ""
+    a, b = fluency.from_dict(rounds[done[0]]), fluency.from_dict(rounds[done[-1]])
+
+    def pct(x, y):
+        return f"{(y - x) / x:+.0%}" if x else "n/a"
+    return (f"**Round {done[0]} → {done[-1]}:** speech rate {pct(a.speech_rate, b.speech_rate)}, "
+            f"pauses per minute {pct(a.pauses_per_min, b.pauses_per_min)}, syllables per run "
+            f"{pct(a.mean_run, b.mean_run)}. Faster with fewer pauses is the 4/3/2 effect; "
+            "the syllable count is an estimate, so compare rounds rather than read single numbers.")
+
+
+def _fluency_history(lang_name: str) -> str:
+    log = fluency.FluencyLog()
+    if log.load_error:
+        return f"⚠️ Fluency history unavailable ({log.load_error})."
+    rows = []
+    for s in log.sessions(LANGS[lang_name])[-6:]:
+        r = s["rounds"]
+        if "1" in r and "3" in r:
+            a, b = fluency.from_dict(r["1"]), fluency.from_dict(r["3"])
+            day = _dt.datetime.fromtimestamp(s["at"], _dt.UTC).astimezone().strftime("%d %b")
+            rows.append(f"| {day} | {s['topic'] or '—'} | {a.speech_rate:.2f} | {b.speech_rate:.2f} |")
+    if not rows:
+        return ""
+    return ("**Past sessions** (syllables per second)\n\n| Date | Topic | Round 1 | Round 3 |\n"
+            "|---|---|---|---|\n" + "\n".join(rows) +
+            "\n\nOver weeks, round 1 creeping up towards round 3 means fluency is sticking.")
+
+
+def fl_new(lang_name: str):
+    return (str(uuid.uuid4()), {}, gr.update(value=ROUND_LABELS[0]), [], "",
+            _fluency_history(lang_name), None)
+
+
+def fl_topic():
+    return random.choice(TOPICS)
+
+
+def fl_analyse(lang_name: str, session_id: str, rounds: dict, rnd: str, topic: str | None,
+               audio_path: str | None):
+    if not audio_path:
+        raise gr.Error("Record the round first.")
+    n = int(rnd.split()[1])
+    try:
+        m = fluency.measure_file(audio_path)
+    except ValueError as exc:
+        raise gr.Error(str(exc))
+    rounds = dict(rounds or {})
+    rounds[str(n)] = fluency.asdict(m)
+    note = _fluency_change(rounds)
+    target = fluency.ROUNDS[n]
+    if m.duration < 0.5 * target:
+        note = (f"*That round was {_fmt_s(m.duration)} of {target // 60} minutes — the "
+                "activity works best when you fill the time.*\n\n" + note)
+    log = fluency.FluencyLog()
+    log.record(session_id, LANGS[lang_name], (topic or "").strip(), n, m)
+    try:
+        log.save()
+    except OSError as exc:
+        note += f"\n\n⚠️ Not saved: {exc}"
+    following = ROUND_LABELS[n] if n < len(ROUND_LABELS) else rnd
+    return (rounds, _fluency_rows(rounds), note, gr.update(value=following),
+            _fluency_history(lang_name), None)
+
+
+# --------------------------------------------------------------------------
+# Level check tab
+# --------------------------------------------------------------------------
+def _read_upload(path: str | None) -> str:
+    if not path:
+        return ""
+    raw = Path(path).read_bytes()
+    for enc in ("utf-8-sig", "utf-16", "cp1252"):
+        try:
+            return raw.decode(enc)
+        except UnicodeDecodeError:
+            continue
+    raise gr.Error("Could not read that file as text.")
+
+
+def _how_common(z: float) -> str:
+    return ("very common" if z >= 5 else "common" if z >= 4 else
+            "less common" if z >= 3 else "rare")
+
+
+def lv_import(lang_name: str, path: str | None, column: int, mode: str):
+    if not path:
+        raise gr.Error("Choose your Anki export (.txt) first.")
+    code = LANGS[lang_name]
+    rows = vocab.read_anki_export(_read_upload(path))
+    if not rows:
+        raise gr.Error("No notes found. In Anki: File → Export → 'Notes in Plain Text'.")
+    col = int(column) - 1
+    words = vocab.words_from_anki(rows, col, "word" if mode.startswith("A word") else "sentence",
+                                  code)
+    if not words:
+        raise gr.Error(f"Field {int(column)} is empty in every note — try another field number.")
+    known = vocab.Known(code)
+    added = known.add(words)
+    known.save()
+    sample = ", ".join(r[col] for r in rows[:3] if col < len(r))
+    return (f"Imported {len(rows)} notes from field {int(column)} (e.g. *{sample}*): "
+            f"{added} new entries, {len(known.words)} known in total.")
+
+
+def lv_analyse(lang_name: str, text: str | None, path: str | None, assume_top: int):
+    code = LANGS[lang_name]
+    body = (text or "").strip() or _read_upload(path)
+    if not body.strip():
+        raise gr.Error("Paste a transcript or upload a .txt/.srt/.vtt file.")
+    known = vocab.Known(code)
+    rep = vocab.analyse(body, code, known.words, int(assume_top))
+    if not rep.total:
+        raise gr.Error("No words found in that text.")
+    summary = (f"### {rep.coverage:.0%} of the words are known\n\n"
+               f"{rep.known} of {rep.total} running words · **{rep.verdict()}**\n\n"
+               f"Guide: about 98% for comfortable reading, 95% workable, 90–95% for listening "
+               f"with support. Based on {len(known.words)} known entries"
+               + (f" plus the {int(assume_top)} most common words." if assume_top else "."))
+    if rep.names:
+        summary += f"\n\nNot counted (probably names): {', '.join(rep.names[:12])}."
+    if code == "de":
+        summary += ("\n\n*German names can't be told from nouns automatically — tick them "
+                    "below as known; that is how coverage research counts them.*")
+    rows = [[u.form, "" if u.lemma.casefold() == u.form.casefold() else u.lemma,
+             _how_common(u.zipf), u.count, u.sentence] for u in rep.unknown]
+    choices = [u.form for u in rep.unknown[:40]]
+    out = _TMP / f"unknown-{code}.tsv"
+    out.write_text(vocab.export_tsv(rep.unknown), encoding="utf-8")
+    return (summary, rows, gr.update(choices=choices, value=[]),
+            str(out) if rep.unknown else None)
+
+
+def lv_mark(lang_name: str, picked: list | None, text, path, assume_top):
+    if not picked:
+        raise gr.Error("Tick the words you already know first.")
+    known = vocab.Known(LANGS[lang_name])
+    known.add(picked)
+    known.save()
+    return lv_analyse(lang_name, text, path, assume_top)
+
+
+# --------------------------------------------------------------------------
 #: Gradio's audio player keeps one <audio> element per component and changes the
 #: speed through `playbackRate`. Loading a new clip resets `playbackRate` to
 #: `defaultPlaybackRate` (the browser's media load algorithm), which is still 1,
@@ -566,6 +818,124 @@ with gr.Blocks(title="Pronunciation trainer") as demo:
         ts_skip_btn.click(ts_skip, [ts_lang, ts_take, ts_skipped], [ts_skipped, *ts_outs])
         ts_undo_btn.click(ts_undo, [ts_lang, ts_skipped], ts_outs)
         ts_hear_btn.click(ts_hear, [ts_lang, ts_take], ts_ref)
+
+    with gr.Tab("Shadow"):
+        gr.Markdown(
+            "Listen to the model a few times, then record yourself saying it with the same "
+            "melody and rhythm — ideally speaking along with it **through headphones**. The "
+            "chart puts your pitch line over the model's. Any clip can be the model: upload "
+            "a sentence from a podcast or video to shadow a real speaker.")
+        with gr.Row():
+            with gr.Column():
+                sh_lang = gr.Dropdown(list(LANGS), value="German", label="Language")
+                sh_phrase = gr.Dropdown(choices=[(p.label, p.text) for p in phrases("de")],
+                                        value=None, label="Practice phrase (optional)")
+                sh_text = gr.Textbox(label="Sentence", value=PROFILES["de"].example, lines=2)
+                with gr.Row():
+                    sh_voice = gr.Button("🔊 Use the voice as the model")
+                    sh_slow = gr.Checkbox(label="Slow", value=False)
+                sh_model_audio = gr.Audio(label="Model (or upload your own clip)",
+                                          sources=["upload"], type="filepath",
+                                          elem_id="shadow-model")
+                sh_model_note = gr.Markdown()
+                sh_take = gr.Audio(label="You", sources=["microphone", "upload"],
+                                   type="filepath")
+                sh_btn = gr.Button("Compare", variant="primary")
+            with gr.Column():
+                sh_plot = gr.Plot(label="Pitch")
+                sh_note = gr.Markdown()
+        sh_lang.change(lambda lang: (phrase_choices(lang),
+                                     gr.update(value=PROFILES[LANGS[lang]].example)),
+                       sh_lang, [sh_phrase, sh_text])
+        sh_phrase.input(sh_pick, [sh_lang, sh_phrase, sh_text], sh_text)
+        sh_voice.click(sh_model, [sh_lang, sh_text, sh_slow], [sh_model_audio, sh_model_note])
+        sh_btn.click(sh_compare, [sh_model_audio, sh_take], [sh_plot, sh_note])
+
+    with gr.Tab("Fluency 4/3/2"):
+        gr.Markdown(
+            "Tell the **same story three times**: in 4 minutes, then 3, then 2. Repeating it "
+            "frees your attention, and the shrinking time pushes you to speak faster with "
+            "fewer pauses (Nation 1989). Record each round, then analyse it — the table "
+            "shows whether you got more fluent from round to round.")
+        fl_id = gr.State()
+        fl_rounds = gr.State({})
+        with gr.Row():
+            with gr.Column():
+                fl_lang = gr.Dropdown(list(LANGS), value="German", label="Language")
+                with gr.Row():
+                    fl_topic_box = gr.Textbox(label="Topic", scale=4,
+                                              placeholder="Anything you can talk about")
+                    fl_suggest = gr.Button("🎲 Suggest", scale=1)
+                fl_round = gr.Radio(ROUND_LABELS, value=ROUND_LABELS[0], label="Round")
+                with gr.Row():
+                    fl_timer_btn = gr.Button("⏱ Start timer")
+                    gr.HTML('<div id="fluency-timer" style="font-size:2rem;font-weight:600;'
+                            'font-variant-numeric:tabular-nums;">4:00</div>')
+                fl_audio = gr.Audio(label="This round", sources=["microphone", "upload"],
+                                    type="filepath")
+                with gr.Row():
+                    fl_go = gr.Button("Analyse round", variant="primary")
+                    fl_reset = gr.Button("New session")
+            with gr.Column():
+                fl_table = gr.Dataframe(headers=FLUENCY_COLS, datatype=["str"] * 8,
+                                        label="Your rounds", interactive=False)
+                fl_note = gr.Markdown()
+                fl_hist = gr.Markdown()
+        fl_new_outs = [fl_id, fl_rounds, fl_round, fl_table, fl_note, fl_hist, fl_audio]
+        demo.load(fl_new, fl_lang, fl_new_outs)
+        fl_reset.click(fl_new, fl_lang, fl_new_outs)
+        fl_lang.change(fl_new, fl_lang, fl_new_outs)
+        fl_suggest.click(fl_topic, None, fl_topic_box)
+        fl_timer_btn.click(None, fl_round, None, js=TIMER_JS)
+        fl_round.change(None, fl_round, None, js=TIMER_RESET_JS)
+        fl_go.click(fl_analyse, [fl_lang, fl_id, fl_rounds, fl_round, fl_topic_box, fl_audio],
+                    [fl_rounds, fl_table, fl_note, fl_round, fl_hist, fl_audio])
+
+    with gr.Tab("Level check"):
+        gr.Markdown(
+            "Is a podcast, video or article at the right level? Paste its transcript (Easy "
+            "German and InnerFrench publish theirs) to see what share of the words you know. "
+            "About **95–98%** is the sweet spot for learning from it.")
+        with gr.Row():
+            with gr.Column():
+                lv_lang = gr.Dropdown(list(LANGS), value="German", label="Language")
+                lv_text = gr.Textbox(label="Transcript", lines=8,
+                                     placeholder="Paste text here, or upload a file below")
+                lv_file = gr.File(label="…or a .txt / .srt / .vtt file", type="filepath",
+                                  file_types=[".txt", ".srt", ".vtt"])
+                lv_top = gr.Slider(0, 5000, value=1000, step=250,
+                                   label="Also count the N most common words as known",
+                                   info="Covers words like der/und/le/et that are rarely on cards.")
+                lv_go = gr.Button("Check level", variant="primary")
+                with gr.Accordion("Your known words: import your Anki deck", open=False):
+                    gr.Markdown("In Anki: **File → Export → Notes in Plain Text (.txt)**, "
+                                "untick 'include HTML' if offered. Then pick which field holds "
+                                "the target-language side.")
+                    lv_anki = gr.File(label="Anki export (.txt)", type="filepath",
+                                      file_types=[".txt"])
+                    with gr.Row():
+                        lv_col = gr.Number(value=1, precision=0, minimum=1,
+                                           label="Field number (1 = front)")
+                        lv_mode = gr.Radio(["A word (e.g. die Tür)", "A sentence"],
+                                           value="A word (e.g. die Tür)",
+                                           label="That field holds")
+                    lv_import_btn = gr.Button("Import")
+                    lv_import_note = gr.Markdown()
+            with gr.Column():
+                lv_summary = gr.Markdown()
+                lv_known = gr.CheckboxGroup([], label="Already know some of these? Tick them")
+                lv_mark_btn = gr.Button("Mark ticked words as known")
+                lv_table = gr.Dataframe(headers=["Word", "Dictionary form (guess)",
+                                                 "How common", "×", "Sentence"],
+                                        datatype=["str", "str", "str", "number", "str"],
+                                        label="Unknown words — most useful first",
+                                        interactive=False, wrap=True,
+                                        column_widths=["15%", "15%", "13%", "5%", "52%"])
+                lv_download = gr.File(label="Unknown words for Anki (File → Import)")
+        lv_outs = [lv_summary, lv_table, lv_known, lv_download]
+        lv_go.click(lv_analyse, [lv_lang, lv_text, lv_file, lv_top], lv_outs)
+        lv_mark_btn.click(lv_mark, [lv_lang, lv_known, lv_text, lv_file, lv_top], lv_outs)
+        lv_import_btn.click(lv_import, [lv_lang, lv_anki, lv_col, lv_mode], lv_import_note)
 
     with gr.Tab("Coverage"):
         gr.Markdown("### What each language's G2P can and cannot be trusted with\n"

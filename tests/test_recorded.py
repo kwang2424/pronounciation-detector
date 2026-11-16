@@ -207,9 +207,12 @@ def test_a_partly_covered_contrast_is_skipped_not_crashed_on(tmp_path):
 
     profile = get("da")
     covered = profile.contrast("soft-d").pairs[0]          # just one pair
-    for word in covered:
+    # Distinct fixed seeds: hash() is randomised per process, and when both words
+    # landed on the same seed (1 run in 50) their clips were identical and the
+    # gate rightly refused the contrast, failing this test at random.
+    for i, word in enumerate(covered):
         for talker in ("anna", "bo", "cecilie"):
-            _write(tmp_path / "da" / talker / f"{word}.wav", seed=hash(word) % 50)
+            _write(tmp_path / "da" / talker / f"{word}.wav", seed=1 + 10 * i)
 
     store = RecordedTalkers(tmp_path, "da")
     assert store.covers(covered)

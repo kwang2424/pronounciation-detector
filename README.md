@@ -237,6 +237,41 @@ Faked errors are clearer than natural ones, so *caught* is an upper bound. Rates
 carry 95% intervals, and there is a threshold sweep for your voice. Recordings and
 the report stay in `~/.mdd/testset` (override with `MDD_TESTSET`).
 
+## Beyond sounds: shadowing, fluency and level
+
+The scorer judges individual sounds. Three tabs cover what it cannot, each
+following a well-supported practice; none needs the speech model.
+
+**Shadow** (`mdd/prosody.py`). Pick a sentence (or upload any clip, such as a
+line from a podcast), record yourself saying it with the same melody, and see
+your pitch line over the model's, in semitones from each speaker's own typical
+pitch so voices compare fairly. It reports pitch *range* (a narrow, flat
+range is the most common learner pattern), contour shape after time alignment
+(DTW), whether the ending rises or falls, and timing. Pitch is YIN in numpy,
+checked to within 1% on test tones from 80 to 430 Hz. On espeak speech,
+a monotone rendering reads 0.3 semitones of range against the normal 4, and
+statements read as falling and questions as rising in most rate/range variants.
+It is a visual aid, not a score: espeak's own questions barely rise, so with
+the espeak fallback the ending is only compared when the model's is clear.
+
+**Fluency 4/3/2** (`mdd/fluency.py`). Tell one story in 4, then 3, then 2
+minutes (Nation 1989), with an in-page timer. Each round reports speech rate,
+articulation rate, pauses (silences of 250 ms or more) per minute, mean pause,
+syllables per run and the longest run, and keeps a history in
+`~/.mdd/fluency.json`. Syllables are estimated from voiced loudness peaks (after
+De Jong & Wempe 2009), within about 10% per sentence on espeak speech. That error
+is similar in every round, so compare rounds rather than reading one number.
+It has not yet been checked on natural speech.
+
+**Level check** (`mdd/vocab.py`). Paste a transcript or upload `.txt`/`.srt`/`.vtt`
+to see what share of its running words you know: about 98% for comfortable
+reading (Hu & Nation 2000), 95% workable (Laufer 1989), 90–95% for listening with
+support. Known words come from an Anki *Notes in Plain Text* export, words you
+tick as known, and optionally the N most common words. Words are matched by lemma
+(simplemma) with a fallback for German participles it misses. German names cannot
+be told apart from nouns, so you tick them as known. Unknown words are listed most
+common first with their sentence and can be downloaded for Anki import.
+
 ## Reading a production report
 
 Not every flag is worth the same. The production tab annotates each with a

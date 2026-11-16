@@ -8,3 +8,6 @@ numpy
 soundfile
 gradio
 edge-tts
+wordfreq
+simplemma
+matplotlib

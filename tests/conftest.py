@@ -8,3 +8,5 @@ def _isolated_history(monkeypatch, tmp_path_factory):
     monkeypatch.setenv("MDD_REVIEW", str(home / "review.json"))
     monkeypatch.setenv("MDD_PROGRESS", str(home / "progress.json"))
     monkeypatch.setenv("MDD_TESTSET", str(home / "testset"))
+    monkeypatch.setenv("MDD_FLUENCY", str(home / "fluency.json"))
+    monkeypatch.setenv("MDD_KNOWN", str(home / "known"))
