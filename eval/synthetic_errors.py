@@ -16,11 +16,20 @@ import argparse  # noqa: E402
 from collections import Counter  # noqa: E402
 
 from mdd.normalize import tokenize  # noqa: E402
-
-from .common import CACHE, THRESHOLDS, analyse_cached, canonical_tokens_by_word, fmt_pct, is_flagged, key, load_sentences, write_results  # noqa: E402
-from .errors import CATALOG, MNEMONIC, ErrorType  # noqa: E402
 from mdd.validate import SEPARATION_THRESHOLD  # noqa: E402
 
+from .common import (  # noqa: E402
+    CACHE,
+    THRESHOLDS,
+    analyse_cached,
+    canonical_tokens_by_word,
+    fmt_pct,
+    is_flagged,
+    key,
+    load_sentences,
+    write_results,
+)
+from .errors import CATALOG, MNEMONIC, ErrorType  # noqa: E402
 from .tts import Espeak, PhonemeGrid  # noqa: E402
 
 REPORT_TAUS = [-6.0, -4.0, -2.0, -1.0, 0.0]

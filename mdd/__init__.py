@@ -1,4 +1,5 @@
-"""German mispronunciation detection & diagnosis (training-free v1)."""
+"""Pronunciation training: per-phone feedback (MDD), perception drills (HVPT) and
+practice tools, for the languages profiled in `mdd.languages`."""
 import os
 import shutil
 

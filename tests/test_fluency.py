@@ -71,16 +71,6 @@ def test_log_keeps_rounds_per_session(tmp_path):
     assert F.from_dict(s1["rounds"]["1"]).mean_run == pytest.approx(200 / 11)
 
 
-def test_an_unreadable_log_is_never_overwritten(tmp_path):
-    path = tmp_path / "fluency.json"
-    path.write_text("{broken", encoding="utf-8")
-    log = F.FluencyLog(path)
-    assert log.load_error
-    with pytest.raises(OSError):
-        log.save()
-    assert path.read_text(encoding="utf-8") == "{broken"
-
-
 def test_measures_derived_values():
     m = F.Measures(duration=120.0, phonation=90.0, pauses=12, pause_time=24.0,
                    syllables=360, longest_run=9.0)

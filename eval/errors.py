@@ -2,8 +2,8 @@
 canonical token inventory. `realized` is one IPA token, a space-separated sequence
 (insertion after substitution), or None (deletion). `context(word_tokens, idx)` restricts
 positions."""
+from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Callable
 
 Ctx = Callable[[list[str], int], bool]
 

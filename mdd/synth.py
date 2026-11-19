@@ -79,11 +79,6 @@ def available() -> bool:
         return False
 
 
-def sample_rate() -> int:
-    _init()
-    return _rate
-
-
 @dataclass(frozen=True)
 class Talker:
     """One synthetic voice: an espeak variant plus rate and pitch settings."""

@@ -143,7 +143,7 @@ def main():
     ap.add_argument("--ipa", help="skip audio; supply realised IPA directly")
     ap.add_argument("--threshold", type=float, default=GOP_THRESHOLD)
     ap.add_argument("--flag-length", action="store_true", help="also flag vowel-length-only errors")
-    ap.add_argument("--lang", default=None, help="language code (de, da, ko)")
+    ap.add_argument("--lang", default=None, help="language code (de, fr, da, ko)")
     a = ap.parse_args()
     rec = None
     if a.ipa is None:

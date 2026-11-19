@@ -62,9 +62,6 @@ class PhoneRecognizer:
             prev = i
         return out
 
-    def greedy_decode(self, logp: torch.Tensor) -> str:
-        return "".join(tok for tok, _ in self.greedy_spikes(logp))
-
     def gop(self, logp: torch.Tensor, canonical_tokens: list[str]) -> list[Segment]:
         """Force-align the canonical token sequence and compute a GOP score per token.
 

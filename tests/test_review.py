@@ -204,3 +204,14 @@ def test_status_suggests_a_phrase_for_the_worst_sound():
     assert "`œ` 3 of 3" in status
     # Suggests an ö phrase other than the one just said three times.
     assert "try *Schöne Grüße aus Köln.*" in status
+
+
+def test_quotes_do_not_split_a_word_between_scorer_and_review():
+    """German „…“ and French «…» used to stay on the word in the scorer's report
+    and the app's highlighting, but not in the review queue."""
+    from mdd.pipeline import analyse
+
+    rep = analyse("Sie sagte „Tür“.", realized_ipa="ziː zaːktə tuːɐ", lang="de")
+    words = {p["word"] for p in rep["phones"] if p["word"]}
+    assert "Tür" in words and not any("„" in w or "“" in w for w in words)
+    assert word_key("„Tür“.") == "tür"

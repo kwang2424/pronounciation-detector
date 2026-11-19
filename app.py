@@ -4,15 +4,18 @@ from mdd._utf8 import ensure_utf8_mode
 ensure_utf8_mode()
 
 import datetime as _dt  # noqa: E402
+import json  # noqa: E402
 import random  # noqa: E402
 import shutil  # noqa: E402
 import tempfile  # noqa: E402
 import uuid  # noqa: E402
+from dataclasses import asdict  # noqa: E402
 from pathlib import Path  # noqa: E402
 
 import gradio as gr  # noqa: E402
 
 from mdd import fluency, prosody, testset, vocab  # noqa: E402
+from mdd.g2p import clean_word  # noqa: E402
 from mdd.hvpt import PerceptionUnavailable, Session  # noqa: E402
 from mdd.languages import PROFILES  # noqa: E402
 from mdd.phrases import CAVEATS, find, for_sound, phrases  # noqa: E402
@@ -94,6 +97,9 @@ def run(lang_name: str, text: str, audio_path: str | None, ipa: str, threshold: 
             review.save()
         except OSError as exc:
             summary += f"\n\n⚠️ Could not save review history: {exc}"
+        if review.kept_as:
+            summary += (f"\n\n⚠️ The old review file could not be read; it was kept as "
+                        f"`{review.kept_as}` and a new one started.")
         if outcome.summary():
             summary += "\n\n" + outcome.summary()
     ipa_view = f"**Expected:** `{rep['canonical']}`\n\n**Heard:** `{rep['realized']}`"
@@ -101,7 +107,7 @@ def run(lang_name: str, text: str, audio_path: str | None, ipa: str, threshold: 
 
 
 def _words(text: str) -> list[str]:
-    return [w for w in (t.strip(".,;:!?\"'()") for t in text.split()) if w]
+    return [w for w in (clean_word(t) for t in text.split()) if w]
 
 
 def _servable(path: Path) -> str:
@@ -205,7 +211,8 @@ def review_status(lang_name: str) -> str:
     review = Review.load()
     lines = []
     if review.load_error:
-        lines.append(f"⚠️ Review history unavailable ({review.load_error}).")
+        lines.append(f"⚠️ Review history unreadable ({review.load_error}). Your next "
+                     "recording starts a new one; the old file is renamed and kept.")
     c = review.counts(code)
     if not c["tracked"] and not c["learned"]:
         lines.append("**Review queue:** empty. Words the scorer flags in your recordings "
@@ -282,7 +289,8 @@ def start_session(lang_name: str):
                  "`python -m eval.make_stimuli " + code + "` for neural voices.*")
     if store.load_error:
         note += (f"\n\n*Starting from an empty history: {store.load_error}. "
-                 f"Past practice is not lost — the existing file is left untouched.*")
+                 f"Past practice is not lost — that file is renamed to "
+                 f"`{store.path.stem}.unreadable-<date>.json` and kept, not overwritten.*")
     elif session.prior:
         done = sum(st.seen for st in session.prior.values())
         note += f"\n\n*Picking up {done} earlier trials from {store.path}.*"
@@ -487,10 +495,15 @@ TOPICS = (
 FLUENCY_COLS = ["Round", "Length", "Syllables/s", "Syllables/s speaking", "Pauses/min",
                 "Avg pause", "Syllables per run", "Longest run"]
 
+#: Round lengths for the page's scripts, from the one definition in mdd.fluency.
+#: A round label reads "Round 2 · 3 min", so its second word is the round number.
+_ROUND_SECS_JS = (f"const secs = ({json.dumps(fluency.ROUNDS)})"
+                  "[String(rnd).split(' ')[1]] || 240;")
+
 #: Counts down in the page itself, so nothing runs on the server; a short beep
 #: marks the end (the click that starts it allows the browser to play sound).
 TIMER_JS = """(rnd) => {
-  const secs = {1: 240, 2: 180, 3: 120}[parseInt(String(rnd).slice(6, 7))] || 240;
+  """ + _ROUND_SECS_JS + """
   const el = document.querySelector('#fluency-timer');
   if (!el) return;
   clearInterval(window.__mddTimer);
@@ -513,7 +526,7 @@ TIMER_JS = """(rnd) => {
 
 
 TIMER_RESET_JS = """(rnd) => {
-  const secs = {1: 240, 2: 180, 3: 120}[parseInt(String(rnd).slice(6, 7))] || 240;
+  """ + _ROUND_SECS_JS + """
   clearInterval(window.__mddTimer);
   const el = document.querySelector('#fluency-timer');
   if (el) el.textContent = `${secs / 60}:00`;
@@ -558,7 +571,8 @@ def _fluency_change(rounds: dict) -> str:
 def _fluency_history(lang_name: str) -> str:
     log = fluency.FluencyLog()
     if log.load_error:
-        return f"⚠️ Fluency history unavailable ({log.load_error})."
+        return (f"⚠️ Fluency history unreadable ({log.load_error}). The next round "
+                "starts a new one; the old file is renamed and kept.")
     rows = []
     for s in log.sessions(LANGS[lang_name])[-6:]:
         r = s["rounds"]
@@ -592,7 +606,7 @@ def fl_analyse(lang_name: str, session_id: str, rounds: dict, rnd: str, topic: s
     except ValueError as exc:
         raise gr.Error(str(exc))
     rounds = dict(rounds or {})
-    rounds[str(n)] = fluency.asdict(m)
+    rounds[str(n)] = asdict(m)
     note = _fluency_change(rounds)
     target = fluency.ROUNDS[n]
     if m.duration < 0.5 * target:
@@ -604,6 +618,8 @@ def fl_analyse(lang_name: str, session_id: str, rounds: dict, rnd: str, topic: s
         log.save()
     except OSError as exc:
         note += f"\n\n⚠️ Not saved: {exc}"
+    if log.kept_as:
+        note += f"\n\n⚠️ The old fluency log could not be read; it was kept as `{log.kept_as}`."
     following = ROUND_LABELS[n] if n < len(ROUND_LABELS) else rnd
     return (rounds, _fluency_rows(rounds), note, gr.update(value=following),
             _fluency_history(lang_name), None)

@@ -33,7 +33,7 @@ from pathlib import Path
 import numpy as np
 
 from . import prosody
-from .progress import write_json_atomic
+from .progress import set_aside, write_json_atomic
 
 PAUSE_S = 0.25
 CLICK_S = 0.06
@@ -165,6 +165,7 @@ class FluencyLog:
     def __init__(self, path: Path | str | None = None):
         self.path = Path(path) if path is not None else default_path()
         self.load_error = None
+        self.kept_as: Path | None = None
         self.data = {"version": 1, "sessions": []}
         if self.path.exists():
             try:
@@ -191,8 +192,9 @@ class FluencyLog:
         return [s for s in self.data["sessions"] if s["lang"] == lang]
 
     def save(self) -> Path:
-        if self.load_error:
-            raise OSError(f"not overwriting an unreadable log: {self.load_error}")
+        if self.load_error:                 # never overwrite what could not be read
+            self.kept_as = set_aside(self.path)
+            self.load_error = None
         return write_json_atomic(self.path, self.data)
 
 

@@ -32,6 +32,16 @@ _SEP = Separator(phone="", word="|", syllable="")
 last_fallbacks: list[str] = []
 
 
+#: Punctuation that clings to a word in running text, German „…“ and French «…»
+#: quotes included. One definition, so the scorer, the word highlighting and the
+#: review queue all agree on what the word is.
+WORD_PUNCT = ".,;:!?\"'()«»„“”‘’‚…"
+
+
+def clean_word(word: str) -> str:
+    return word.strip(WORD_PUNCT)
+
+
 def _is_punctuation(token: str) -> bool:
     return all(unicodedata.category(ch).startswith("P") or ch.isspace() for ch in token)
 
@@ -73,7 +83,7 @@ def text_to_ipa_words(text: str, lang=None) -> list[tuple[str, str]]:
     out = []
     for w, p in zip(words, ipa):
         p = p.replace("|", "").strip()
-        clean = w.strip(".,;:!?\"'()")
+        clean = clean_word(w)
         if p:
             out.append((clean, p))
     return out

@@ -54,13 +54,6 @@ def _key(word: str) -> str:
     return unicodedata.normalize("NFC", word).casefold()
 
 
-@dataclass
-class Clip:
-    word: str
-    talker: str
-    path: Path
-
-
 class RecordedTalkers:
     """A directory of recordings, indexed by (word, talker)."""
 
@@ -109,9 +102,6 @@ class RecordedTalkers:
 
     def talkers_for(self, word: str) -> list[str]:
         return sorted(self.clips.get(_key(word), {}))
-
-    def has(self, word: str, talker: str) -> bool:
-        return talker in self.clips.get(_key(word), {})
 
     def covers(self, words) -> bool:
         """True when every word has at least one talker — what a trial needs."""

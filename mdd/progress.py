@@ -14,7 +14,8 @@ which is what keeps repeated saves from inflating your history.
 Stored as one JSON file, written atomically (temp file + replace) so an
 interrupted write cannot leave a half-file behind. A corrupt or unreadable store
 is never fatal: it is reported and treated as empty, because losing practice
-history should not stop you practising.
+history should not stop you practising — and it is never overwritten either: the
+first save renames it aside (`set_aside`) so it can still be recovered.
 """
 from __future__ import annotations
 
@@ -79,6 +80,8 @@ class Progress:
                                                           "languages": {}}
         #: Set when an existing file could not be read; the store is empty but usable.
         self.load_error = load_error
+        #: Where `save` moved that unreadable file, once it has.
+        self.kept_as: Path | None = None
 
     # ---------------------------------------------------------------- loading
     @classmethod
@@ -211,8 +214,31 @@ class Progress:
                     row["last_practiced"] = at
 
     def save(self) -> Path:
+        if self.load_error:
+            self.kept_as = set_aside(self.path)
+            self.load_error = None
         self._data["version"] = SCHEMA_VERSION
         return write_json_atomic(self.path, self._data)
+
+
+def set_aside(path: Path) -> Path | None:
+    """Rename a file that could not be read, so a fresh one can be written
+    without destroying it: progress.json -> progress.unreadable-20261119-1415.json.
+
+    Every history store starts empty when its file is unreadable (corrupt, or a
+    newer schema), and the first save used to overwrite it — the opposite of what
+    the app told the learner. Returns the new name, or None if there was no file.
+    """
+    if not path.exists():
+        return None
+    stamp = time.strftime("%Y%m%d-%H%M%S")
+    dest = path.with_name(f"{path.stem}.unreadable-{stamp}{path.suffix}")
+    n = 1
+    while dest.exists():
+        n += 1
+        dest = path.with_name(f"{path.stem}.unreadable-{stamp}-{n}{path.suffix}")
+    os.replace(path, dest)
+    return dest
 
 
 def write_json_atomic(path: Path, data: dict) -> Path:

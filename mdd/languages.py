@@ -310,7 +310,7 @@ KOREAN = LanguageProfile(
     multi=("tɕ", "tɕh", "tʃ", "tʃh", "ph", "th", "kh", "ɕ"),
     r_variants=frozenset({"ɾ", "r", "l", "ɫ"}),
     r_canonical="ɾ",
-    equiv={"ɐ": "a", "ɫ": "l", "q": "k", "ʌ": "ʌ"},
+    equiv={"ɐ": "a", "ɫ": "l", "q": "k"},
     strip=frozenset({"ʔ", "̃"}),
     example="안녕하세요",
     hvpt_ready=False,
@@ -390,7 +390,7 @@ FRENCH = LanguageProfile(
     coda_r_ok=frozenset({None}),
     equiv={
         "ɒ": "ɔ",        # espeak occasionally emits the English open-back vowel
-        "a": "a", "ɑ": "a",
+        "ɑ": "a",
         "œ̃": "ɛ̃",       # brun/brin merger: standard in most of France today
     },
     # French has no phonemic glottal stop; length is not phonemic either, but

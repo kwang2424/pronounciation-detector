@@ -37,7 +37,8 @@ from collections import Counter
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from .progress import write_json_atomic
+from .g2p import clean_word
+from .progress import set_aside, write_json_atomic
 from .reliability import reliability
 
 SCHEMA_VERSION = 1
@@ -58,7 +59,7 @@ def default_path() -> Path:
 
 
 def word_key(word: str) -> str:
-    return word.strip(".,;:!?\"'()«»„“”").casefold()
+    return clean_word(word).casefold()
 
 
 def gap(seconds: float) -> str:
@@ -128,6 +129,7 @@ class Review:
         self._data = data if data is not None else {"version": SCHEMA_VERSION,
                                                     "languages": {}}
         self.load_error = load_error
+        self.kept_as: Path | None = None
 
     @classmethod
     def load(cls, path: Path | str | None = None) -> Review:
@@ -143,6 +145,9 @@ class Review:
         return cls(p, data=data)
 
     def save(self) -> Path:
+        if self.load_error:                 # never overwrite what could not be read
+            self.kept_as = set_aside(self.path)
+            self.load_error = None
         return write_json_atomic(self.path, self._data)
 
     # ---------------------------------------------------------------- storage
@@ -177,7 +182,7 @@ class Review:
             key = word_key(p.get("word") or "")
             if key:
                 by_word.setdefault(key, []).append(p)
-                shown.setdefault(key, p["word"].strip(".,;:!?\"'()«»„“”"))
+                shown.setdefault(key, clean_word(p["word"]))
             if p.get("canonical"):
                 seen[p["canonical"]] += 1
             if p.get("flagged") and not self._noisy(lang, p) and p.get("canonical"):

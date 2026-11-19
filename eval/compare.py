@@ -3,7 +3,6 @@
   python -m eval.compare eval/results/v1 eval/results
 """
 import json
-import sys
 from pathlib import Path
 
 from .common import fmt_pct
@@ -53,4 +52,10 @@ def main(before: Path, after: Path) -> None:
 
 
 if __name__ == "__main__":
-    main(Path(sys.argv[1]), Path(sys.argv[2]))
+    import argparse
+
+    ap = argparse.ArgumentParser(prog="eval.compare", description=__doc__.split("\n")[0])
+    ap.add_argument("before", type=Path, help="results directory, e.g. eval/results/v1")
+    ap.add_argument("after", type=Path, help="results directory, e.g. eval/results")
+    args = ap.parse_args()
+    main(args.before, args.after)

@@ -247,7 +247,7 @@ def main():
 
     ap = argparse.ArgumentParser(prog="mdd.validate",
                                  description="Check which contrasts espeak can actually render.")
-    ap.add_argument("langs", nargs="*", default=["de", "da", "ko"])
+    ap.add_argument("langs", nargs="*", default=["de", "fr", "da", "ko"])
     ap.add_argument("--no-audio", action="store_true", help="transcription check only (fast)")
     args = ap.parse_args()
     for code in args.langs:

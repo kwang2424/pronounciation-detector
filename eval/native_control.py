@@ -13,7 +13,19 @@ if __name__ == "__main__":
 import argparse  # noqa: E402
 from collections import Counter, defaultdict  # noqa: E402
 
-from .common import CACHE, DEFAULT_LANG, THRESHOLDS, analyse_cached, cache_stats, fmt_pct, is_flagged, key, load_sentences, results_name, write_results  # noqa: E402
+from .common import (  # noqa: E402
+    CACHE,
+    DEFAULT_LANG,
+    THRESHOLDS,
+    analyse_cached,
+    cache_stats,
+    fmt_pct,
+    is_flagged,
+    key,
+    load_sentences,
+    results_name,
+    write_results,
+)
 from .tts import default_voices, synth_missing  # noqa: E402
 
 FPR_TARGET = 0.05

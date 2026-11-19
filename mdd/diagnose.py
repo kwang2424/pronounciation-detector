@@ -6,9 +6,6 @@ dropped sound — Danish stød being the case that matters.
 """
 from .languages import LanguageProfile, get
 
-# Kept for backwards compatibility with callers that imported the German table.
-TIPS = get("de").tips
-
 
 def tip_for(canonical: str | None, realized: str | None,
             profile: LanguageProfile | str | None = None) -> str:

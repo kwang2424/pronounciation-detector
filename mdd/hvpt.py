@@ -49,6 +49,11 @@ class Trial:
     choices: tuple[str, ...]
     talker: Talker
     lang: str
+    #: When set, the stimulus is a recording rather than synthesis.
+    recordings: object | None = None
+    #: espeak's synthesiser name, which is not always the profile code (French is
+    #: "fr" here but "fr-fr" to the phonemiser). Defaults to `lang`.
+    voice: str = ""
 
     @property
     def talker_id(self) -> str:
@@ -65,12 +70,6 @@ class Trial:
             return choice == self.answer_index
         return choice == self.target
 
-    #: When set, the stimulus is a recording rather than synthesis.
-    recordings: object | None = None
-    #: espeak's synthesiser name, which is not always the profile code (French is
-    #: "fr" here but "fr-fr" to the phonemiser). Defaults to `lang`.
-    voice: str = ""
-
     def audio(self):
         """(sample_rate, samples) for the stimulus."""
         if self.recordings is not None:
@@ -80,13 +79,11 @@ class Trial:
         return synth.synthesize(self.target, self.voice or self.lang, self.talker)
 
     def render(self, path):
-        if self.recordings is not None:
-            from . import synth
-
-            rate, samples = self.audio()
-            return synth.write_wav(path, rate, samples)
         from . import synth
 
+        if self.recordings is not None:
+            rate, samples = self.audio()
+            return synth.write_wav(path, rate, samples)
         return synth.render_to_file(self.target, self.voice or self.lang, path, self.talker)
 
 

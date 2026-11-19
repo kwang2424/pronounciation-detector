@@ -1,25 +1,43 @@
 # Pronunciation trainer
 
-Training-free pronunciation work for German, Danish and Korean, in two halves:
+Training-free pronunciation work, mainly for German and French. Danish runs but
+its scoring is unevaluated and synthesis cannot render stød; Korean perception is
+disabled pending a real G2P (see *Languages*). `python app.py` opens seven tabs:
 
-- **Production** — mispronunciation detection and diagnosis. Say a sentence, get
-  per-phone feedback. See `german-mdd-design.md`.
-- **Perception** — High Variability Phonetic Training. Identify a word from a
-  minimal set, heard from a different synthetic talker each trial. Perceptual
-  gains transfer to production (Bradlow et al. 1997), so this is the half worth
-  doing first. See `perception-design.md`.
+| Tab | What it does |
+|---|---|
+| **Say it** | Mispronunciation detection: say a sentence, get per-phone feedback with a confidence for each flag, hear the target, practice phrases, and a spaced review queue of flagged words. See `german-mdd-design.md`. |
+| **Hear it** | High Variability Phonetic Training: identify a word from a minimal set, a different talker each trial. Perceptual gains transfer to production (Bradlow et al. 1997), so it is worth doing first. See `perception-design.md`. |
+| **Test set** | Record words as best attempt and deliberate error, to measure the scorer on your own voice (tier 4). |
+| **Shadow** | Your pitch contour over a model's: range, shape, ending, timing. |
+| **Fluency 4/3/2** | One story in 4, 3 then 2 minutes; speech rate and pauses per round. |
+| **Level check** | What share of a transcript's words you know, and which unknown words matter most. |
+| **Coverage** | What each language's G2P and contrast set can be trusted with. |
+
+Everything you produce stays on your machine, under `~/.mdd/` (each path can be
+moved with an environment variable):
+
+| Path | Holds | Variable |
+|---|---|---|
+| `progress.json` | perception history | `MDD_PROGRESS` |
+| `review.json` | review queue and per-sound statistics | `MDD_REVIEW` |
+| `fluency.json` | 4/3/2 rounds | `MDD_FLUENCY` |
+| `known/<lang>.txt` | words you know (Anki import, ticked words) | `MDD_KNOWN` |
+| `testset/` | your test-set recordings and their report | `MDD_TESTSET` |
+| `reference/`, `stimuli/` | cached reference audio, perception clips | `MDD_REFERENCE`, `MDD_STIMULI` |
+
+A history file that cannot be read (corrupt, or from a newer version) is renamed
+to `<name>.unreadable-<date>.json` on the next save, never overwritten.
 
 ```bash
 pip install -r requirements.txt   # includes espeakng-loader, which bundles espeak-ng (no system install needed)
-python -m pytest tests            # alignment/profile/HVPT tests, no model needed
-python app.py                     # web UI: both tabs plus a coverage report
+python -m pytest tests            # no model download needed
+python app.py                     # web UI: the seven tabs above
 
 # production feedback
 python -m mdd.pipeline "Ich möchte ein Bier" rec.wav
 python -m mdd.pipeline "Ich möchte ein Bier" --ipa "ɪk mɔktə aɪn biːɾ"   # text-only dry run
 python -m mdd.pipeline "mad gade" --lang da --ipa "mad ɡadə"
-
-# perception progress is kept in ~/.mdd/progress.json ($MDD_PROGRESS to move it)
 
 # better perception stimuli: neural voices instead of espeak (needs internet)
 python -m eval.make_stimuli fr        # ~9 talkers from 3 voices x 3 speaking rates
@@ -36,7 +54,7 @@ python -m mdd.validate --no-audio          # fast, transcription check only
 python -m eval.tts_probe da                # could a neural voice rescue a gated one? (needs internet)
 ```
 First real run of the production tab downloads `facebook/wav2vec2-xlsr-53-espeak-cv-ft` (~1.2 GB).
-The perception tab needs no model at all.
+No other tab needs it.
 
 ## Languages
 
