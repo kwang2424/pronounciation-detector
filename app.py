@@ -9,6 +9,7 @@ from pathlib import Path  # noqa: E402
 
 import gradio as gr  # noqa: E402
 
+from mdd.audio import AudioQualityError  # noqa: E402
 from mdd.hvpt import PerceptionUnavailable, Session  # noqa: E402
 from mdd.languages import PROFILES  # noqa: E402
 from mdd.pipeline import GOP_THRESHOLD, analyse  # noqa: E402
@@ -46,7 +47,10 @@ def run(lang_name: str, text: str, audio_path: str | None, ipa: str, threshold: 
     if ipa:
         rep = analyse(text, realized_ipa=ipa, threshold=threshold, lang=code)
     elif audio_path:
-        rep = analyse(text, audio_path, get_recognizer(), threshold=threshold, lang=code)
+        try:
+            rep = analyse(text, audio_path, get_recognizer(), threshold=threshold, lang=code)
+        except AudioQualityError as exc:
+            raise gr.Error(str(exc)) from exc
     else:
         raise gr.Error("Record or upload audio, or paste realised IPA for a dry run.")
 
@@ -81,6 +85,8 @@ def run(lang_name: str, text: str, audio_path: str | None, ipa: str, threshold: 
         worst = ", ".join(f"`{k}`" for k, v in sorted(blind.items(), key=lambda kv: kv[1])[:4])
         summary += (f"\n\n*Not detectable at all ({worst}): a clean report is not "
                     f"evidence these were right.*")
+    for warn in (rep.get("audio") or {}).get("warnings") or ():
+        summary += f"\n\n⚠️ {warn}"
     ipa_view = f"**Expected:** `{rep['canonical']}`\n\n**Heard:** `{rep['realized']}`"
     return summary, highlighted, rows, ipa_view
 

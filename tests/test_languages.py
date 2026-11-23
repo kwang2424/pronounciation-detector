@@ -140,9 +140,9 @@ def test_french_coda_r_may_drop_but_onset_r_may_not():
 
 
 def test_allophone_acceptance_is_per_language():
-    """German has no such allowance: its r is a different phoneme with different
-    realisations, and [x] is a separate German phoneme entirely (ach-Laut)."""
-    assert get("de").allow == {}
+    """German has no /ʁ/ -> [x] allowance: its r is a different phoneme,
+    and [x] is ach-Laut."""
+    assert "ʁ" not in get("de").allow
     flagged = [(p["canonical"], p["realized"])
                for p in analyse("rot", realized_ipa="xoːt", lang="de")["phones"] if p["flagged"]]
     assert flagged, "German must still flag x for r"

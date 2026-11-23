@@ -82,6 +82,7 @@ def canonical_signature(text: str, lang: str = DEFAULT_LANG) -> str:
         ";".join(f"{k}={v}" for k, v in sorted(profile.equiv.items())),
         ",".join(sorted(profile.strip)),
         ";".join(f"{k}>{','.join(sorted(v))}" for k, v in sorted(profile.allow.items())),
+        str(profile.allow_final_ig),
         str(FLAG_LENGTH_ONLY),
         str(INS_MIN_PROB),
         str(GAP),

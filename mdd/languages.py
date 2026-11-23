@@ -63,6 +63,9 @@ class LanguageProfile:
     #: allophones the recogniser spells differently, not learner errors. Unlike
     #: `coda_r_ok` this is position-independent.
     allow: dict[str, frozenset[str]] = field(default_factory=dict)
+    #: Accept word-final -ig as [ɪk] (Southern/Austrian/Swiss standard) without
+    #: relaxing [ç] elsewhere (e.g. Ich/möchte -> k remains an error).
+    allow_final_ig: bool = False
     #: Recogniser/G2P spelling variants folded to one token.
     equiv: dict[str, str] = field(default_factory=dict)
     #: Diacritics stripped in addition to BASE_STRIP.
@@ -115,6 +118,8 @@ GERMAN = LanguageProfile(
     r_variants=frozenset({"r", "ʀ", "ɾ", "ʁ"}),
     r_canonical="ʁ",
     coda_r_ok=frozenset({None, "ɐ", "ɜ", "ə", "a"}),
+    allow={"x": frozenset({"χ"})},
+    allow_final_ig=True,
     equiv={
         "ɐ̯": "ɐ", "ɛ̃": "ɛ", "ɑ": "a", "ɑː": "aː",
         "ɔø": "ɔʏ", "ɔy": "ɔʏ", "ɔɪ": "ɔʏ",   # espeak writes eu/äu as ɔø
@@ -129,7 +134,7 @@ GERMAN = LanguageProfile(
     example="Ich möchte ein Bier",
     g2p_caveat="Reliable. espeak-ng's German G2P matches Duden for ordinary vocabulary.",
     tips=_tips([
-        (["y", "yː"], ["u", "uː", "ʊ", "ju"],
+        (["y", "yː"], ["u", "uː", "ʊ", "ju", "i", "iː", "ɪ"],
          "ü: say /i/ (as in 'see') and round your lips without moving your tongue."),
         (["ø", "øː", "œ"], ["o", "oː", "ɔ", "ɛ", "ɜ", "ɜː"],
          "ö: say /e/ (as in 'say') and round your lips."),
@@ -143,9 +148,10 @@ GERMAN = LanguageProfile(
         (["v"], ["w"], "German w is English 'v': top teeth on lower lip."),
         (["f"], ["v"], "German v is usually /f/: Vater = 'fahter'."),
         (["ʃ"], ["s"], "s before t/p at word start is 'sh': Straße = 'shtrahsse'."),
-        (["t"], ["d"], "Final devoicing: a written d at the end of a word is said /t/ (Hund = 'hunt')."),
-        (["k"], ["ɡ"], "Final devoicing: a written g at the end of a word is said /k/ (Tag = 'tahk')."),
-        (["p"], ["b"], "Final devoicing: a written b at the end of a word is said /p/ (halb = 'halp')."),
+        (["t"], ["d"], "Final devoicing: a written d at the end of a word or syllable is said /t/ (Hund = 'hunt', Mädchen = 'meht-chen')."),
+        (["k"], ["ɡ"], "Final devoicing: a written g at the end of a word or syllable is said /k/ (Tag = 'tahk')."),
+        (["p"], ["b"], "Final devoicing: a written b at the end of a word or syllable is said /p/ (halb = 'halp')."),
+        (["s"], ["z"], "Final devoicing: a written s at the end of a word or syllable is voiceless /s/ (Haus = 'hows')."),
         # German schwa is not only word-final: it carries the ge-/be- prefixes and
         # the -en/-er endings too. The tip used to say "final -e", which misfires on
         # genug (/ɡəˈnuːk/), where the schwa is the prefix.
@@ -161,7 +167,8 @@ GERMAN = LanguageProfile(
             id="front-rounded",
             label="ü / u and ö / o",
             phones=("yː", "uː", "øː", "oː"),
-            pairs=(("Tier", "Tür"), ("Mus", "müssen"), ("Höhle", "Hohle"), ("schon", "schön")),
+            pairs=(("Tier", "Tür"), ("Bruder", "Brüder"), ("drucken", "drücken"),
+                   ("lesen", "lösen"), ("Höhle", "Hohle"), ("schon", "schön")),
             tip="Front rounded vowels: tongue where it is for 'ee'/'ay', lips rounded as for 'oo'.",
             why="English has no front rounded vowels, so /y/ is heard as /u/ and /ø/ as /o/ or /ɜ/.",
         ),
@@ -169,23 +176,25 @@ GERMAN = LanguageProfile(
             id="ich-ach",
             label="ich-Laut / ach-Laut / sch",
             phones=("ç", "x", "ʃ"),
-            pairs=(("ich", "Asche"), ("Bücher", "Buch"), ("dich", "Dach")),
+            pairs=(("Kirche", "Kirsche"), ("Fichte", "fischte"),
+                   ("mich", "misch"), ("Kuchen", "Kuhchen")),
             tip="ç is front (like 'huge'), x is back (throat-clearing), ʃ is 'sh' with rounded lips.",
             why="English maps all three onto 'sh' or 'k'; the ç/x split is positional in German.",
         ),
         Contrast(
             id="vowel-length",
             label="Long vs short vowels",
-            phones=("aː", "a", "iː", "ɪ", "oː", "ɔ"),
-            pairs=(("Stadt", "Staat"), ("Bitte", "biete"), ("offen", "Ofen"), ("Wall", "Wal")),
+            phones=("aː", "a", "iː", "ɪ", "uː", "ʊ", "oː", "ɔ", "eː", "ɛ", "yː", "y", "øː", "œ"),
+            pairs=(("Stadt", "Staat"), ("Bitte", "biete"), ("offen", "Ofen"), ("Wall", "Wal"),
+                   ("Hüte", "Hütte"), ("spuken", "spucken"), ("Beet", "Bett"), ("Höhle", "Hölle")),
             tip="German vowel length is phonemic: hold the long one about twice as long.",
-            why="English pairs length with quality; German contrasts duration on its own.",
+            why="German vowel length is phonemic and — except for /aː/-/a/ — paired with a tense/lax quality shift (Staat/Stadt, biete/Bitte, Hüte/Hütte).",
         ),
         Contrast(
             id="r-uvular",
-            label="Uvular r vs vocalised r",
-            phones=("ʁ", "ɐ"),
-            pairs=(("rot", "Uhr"), ("Rand", "Vater")),
+            label="Uvular r vs l / coda r",
+            phones=("ʁ", "ɐ", "l"),
+            pairs=(("rot", "Lot"), ("Rand", "Land"), ("sehr", "See"), ("wir", "wie"), ("wer", "weh")),
             tip="Onset r is uvular friction; after a vowel it becomes an [ɐ] offglide, not a tongue curl.",
             why="English speakers substitute the retroflex approximant [ɹ] in every position.",
         ),

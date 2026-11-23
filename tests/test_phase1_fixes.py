@@ -102,7 +102,8 @@ class _FakeRecognizer:
         self._gops = gop_values
 
     def load_audio(self, path):
-        return np.zeros(1600, dtype=np.float32)
+        t = np.linspace(0, 0.3, 4800, endpoint=False)
+        return (0.2 * np.sin(2 * np.pi * 200 * t)).astype(np.float32)
 
     def log_probs(self, wav):
         return torch.zeros((10, 4))
