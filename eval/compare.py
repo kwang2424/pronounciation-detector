@@ -38,17 +38,31 @@ def main(before: Path, after: Path) -> None:
     s1, s2 = load(before, "synthetic_errors"), load(after, "synthetic_errors")
     if s1 and s2:
         r1 = {r["name"]: r for r in s1["rows"]}
+        r2 = {r["name"]: r for r in s2["rows"]}
+        names = [r["name"] for r in s2["rows"]] + [r["name"] for r in s1["rows"] if r["name"] not in r2]
         L += ["## Synthetic errors: recall at τ = -2 and diagnosis accuracy", "",
               "| error | n | recall before | after | diagnosis before | after |", "|---|---|---|---|---|---|"]
-        for r in s2["rows"]:
-            o = r1.get(r["name"])
-            if r["error"]:
+        for name in names:
+            o = r1.get(name)
+            r = r2.get(name)
+            if r is None:
+                L.append(f"| {name} (removed) | {o['n']} | {fmt_pct(o['recall']['-2.0'])} | – | "
+                         f"{fmt_pct(o['diag_acc'])} | – |")
                 continue
-            L.append(f"| {r['name']} | {r['n']} | {fmt_pct(o['recall']['-2.0']) if o else '–'} | "
-                     f"{fmt_pct(r['recall']['-2.0'])} | {fmt_pct(o['diag_acc']) if o else '–'} | {fmt_pct(r['diag_acc'])} |")
+            if r.get("error") and o is None:
+                continue
+            rec_after = "–" if r.get("error") else fmt_pct(r["recall"]["-2.0"])
+            diag_after = "–" if r.get("error") else fmt_pct(r["diag_acc"])
+            L.append(f"| {name} | {r['n']} | {fmt_pct(o['recall']['-2.0']) if o else '–'} | "
+                     f"{rec_after} | {fmt_pct(o['diag_acc']) if o else '–'} | {diag_after} |")
         o1, o2 = s1["overall"], s2["overall"]
         L.append(f"| **all** | {o2['n']} | {fmt_pct(o1['recall']['-2.0'])} | {fmt_pct(o2['recall']['-2.0'])} | "
                  f"{fmt_pct(o1['diag_acc'])} | {fmt_pct(o2['diag_acc'])} |")
+        if o1.get("cond_diag_acc") and o2.get("cond_diag_acc"):
+            L += ["", "### Threshold τ = -1 summary (recall / cond_diag / DER)", "",
+                  f"- Recall@-1: {fmt_pct(o1['recall'].get('-1.0'))} → {fmt_pct(o2['recall'].get('-1.0'))}",
+                  f"- Cond diagnosis@-1: {fmt_pct(o1['cond_diag_acc'].get('-1.0'))} → {fmt_pct(o2['cond_diag_acc'].get('-1.0'))}",
+                  f"- DER@-1: {fmt_pct((o1.get('der') or {}).get('-1.0'))} → {fmt_pct((o2.get('der') or {}).get('-1.0'))}"]
     print("\n".join(L))
 
 

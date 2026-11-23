@@ -19,6 +19,7 @@ from mdd.normalize import tokenize  # noqa: E402
 
 from .common import CACHE, THRESHOLDS, analyse_cached, canonical_tokens_by_word, fmt_pct, is_flagged, key, load_sentences, write_results  # noqa: E402
 from .errors import CATALOG, MNEMONIC, ErrorType  # noqa: E402
+from .metrics import MDDCounts, compute_metrics  # noqa: E402
 from mdd.validate import SEPARATION_THRESHOLD  # noqa: E402
 
 from .tts import Espeak, PhonemeGrid  # noqa: E402
@@ -86,7 +87,7 @@ def evaluate(err: ErrorType, rep: dict, ctl: dict, j: int) -> dict:
     if err.kind == "sub":
         detected = {t: is_flagged(p, t) for t in THRESHOLDS}
         diag_ok = p["op"] == "sub" and p["realized"] in (err.realized, *err.also_ok)
-        heard = p["realized"] if p["op"] != "match" else "(match)"
+        heard = "∅" if p["op"] == "del" else (p["realized"] if p["op"] != "match" else "(match)")
     elif err.kind == "del":
         detected = {t: is_flagged(p, t) for t in THRESHOLDS}
         diag_ok = p["op"] == "del"
@@ -97,8 +98,28 @@ def evaluate(err: ErrorType, rep: dict, ctl: dict, j: int) -> dict:
         detected = {t: is_flagged(p, t) or (ins_ok and is_flagged(nxt, t)) for t in THRESHOLDS}
         diag_ok = ins_ok and nxt["realized"] in (extra[0], *err.also_ok)
         heard = f"+{nxt['realized']}" if ins_ok else (p["realized"] if p["op"] != "match" else "(match)")
-    return {"detected": detected, "diag_ok": diag_ok, "heard": heard, "gop": p["gop"],
-            "control_flagged": {t: is_flagged(c, t) for t in THRESHOLDS}, "control_gop": c["gop"]}
+    ctl_n_canon = 0
+    ctl_fr = {t: 0 for t in THRESHOLDS}
+    ci_ctl = -1
+    for cp in ctl["phones"]:
+        if cp["op"] != "ins":
+            ci_ctl += 1
+            if ci_ctl == j:
+                continue
+            ctl_n_canon += 1
+        for t in THRESHOLDS:
+            if is_flagged(cp, t):
+                ctl_fr[t] += 1
+    return {
+        "detected": detected,
+        "diag_ok": diag_ok,
+        "heard": heard,
+        "gop": p["gop"],
+        "control_flagged": {t: is_flagged(c, t) for t in THRESHOLDS},
+        "control_gop": c["gop"],
+        "ctl_n_canon": ctl_n_canon,
+        "ctl_fr": ctl_fr,
+    }
 
 
 def run(esp: Espeak, grids, per_type: int) -> dict:
@@ -152,18 +173,20 @@ def _rendered(control_wav, injected_wav) -> float | None:
     from mdd.validate import _distance, _spectrum
 
     try:
-        a, _ = sf.read(str(control_wav))
-        b, _ = sf.read(str(injected_wav))
+        a, sr_a = sf.read(str(control_wav))
+        b, sr_b = sf.read(str(injected_wav))
     except Exception:
         return None
     sa = _spectrum([int(v * 32768) for v in a])
     sb = _spectrum([int(v * 32768) for v in b])
     if sa is None or sb is None:
         return None
+    dur_a = len(a) / sr_a if sr_a else 0.0
+    dur_b = len(b) / sr_b if sr_b else 0.0
     # Same-file distance is zero for espeak's cached output, so compare against a
     # small absolute floor on the unit-normalised scale, as mdd.validate does.
     from mdd.validate import MIN_FLOOR
-    return float(_distance(sa, sb) / MIN_FLOOR)
+    return float(_distance(sa, sb, dur_a, dur_b) / MIN_FLOOR)
 
 
 def _rendered_ratio(entry) -> float | None:
@@ -186,14 +209,32 @@ def _control_fp(entry, tau):
     return sum(c["control_flagged"][tau] for c in cs) / len(cs) if cs else None
 
 
+def _clean_recall(entry, tau):
+    cs = [c for c in entry["cases"] if not c["control_flagged"][tau]]
+    return sum(c["detected"][tau] for c in cs) / len(cs) if cs else None
+
+
+def _cond_diag_acc(entry, tau):
+    det = [c for c in entry["cases"] if c["detected"][tau]]
+    return sum(c["diag_ok"] for c in det) / len(det) if det else None
+
+
+def _der(cond_acc):
+    return None if cond_acc is None else 1.0 - cond_acc
+
+
 def summarise(results: dict) -> dict:
     rows = []
     for name, e in results.items():
         cs = e["cases"]
+        cond_by_tau = {str(t): _cond_diag_acc(e, t) for t in THRESHOLDS}
         rows.append({
             "name": name, "kind": e["kind"], "canonical": e["canonical"], "realized": e["realized"], "n": len(cs),
             "recall": {str(t): _recall(e, t) for t in THRESHOLDS},
+            "clean_recall": {str(t): _clean_recall(e, t) for t in THRESHOLDS},
             "diag_acc": _diag(e),
+            "cond_diag_acc": cond_by_tau,
+            "der": {k: _der(v) for k, v in cond_by_tau.items()},
             "control_fp": {str(t): _control_fp(e, t) for t in THRESHOLDS},
             "heard_as": Counter(c["heard"] for c in cs).most_common(3),
             # Whether espeak rendered the injection at all. A row with a low
@@ -202,11 +243,36 @@ def summarise(results: dict) -> dict:
             "error": e.get("error"), "note": e["note"],
         })
     all_cases = [c for e in results.values() for c in e["cases"]]
+    overall_clean = {}
+    overall_cond = {}
+    overall_der = {}
+    metrics_by_tau = {}
+    for t in THRESHOLDS:
+        clean_cs = [c for c in all_cases if not c["control_flagged"][t]]
+        overall_clean[str(t)] = sum(c["detected"][t] for c in clean_cs) / len(clean_cs) if clean_cs else None
+        det_cs = [c for c in all_cases if c["detected"][t]]
+        cond_val = sum(c["diag_ok"] for c in det_cs) / len(det_cs) if det_cs else None
+        overall_cond[str(t)] = cond_val
+        overall_der[str(t)] = _der(cond_val)
+
+        tr = len(det_cs)
+        fa = len(all_cases) - tr
+        cd = sum(1 for c in det_cs if c["diag_ok"])
+        de = tr - cd
+        fr = sum((c.get("ctl_fr") or {}).get(t, 0) for c in all_cases)
+        n_bg = sum(c.get("ctl_n_canon", 0) for c in all_cases)
+        ta = max(0, n_bg - fr)
+        metrics_by_tau[str(t)] = compute_metrics(MDDCounts(ta=ta, fr=fr, tr=tr, fa=fa, cd=cd, de=de))
+
     overall = {
         "n": len(all_cases),
         "recall": {str(t): sum(c["detected"][t] for c in all_cases) / max(len(all_cases), 1) for t in THRESHOLDS},
+        "clean_recall": overall_clean,
         "diag_acc": sum(c["diag_ok"] for c in all_cases) / max(len(all_cases), 1),
+        "cond_diag_acc": overall_cond,
+        "der": overall_der,
         "control_fp": {str(t): sum(c["control_flagged"][t] for c in all_cases) / max(len(all_cases), 1) for t in THRESHOLDS},
+        "metrics": metrics_by_tau,
     }
     return {"thresholds": THRESHOLDS, "rows": rows, "overall": overall}
 
@@ -215,13 +281,14 @@ def markdown(summary: dict, skipped) -> str:
     L = ["# Synthetic positives", "",
          f"{summary['overall']['n']} injected errors across {sum(1 for r in summary['rows'] if r['n'])} error types, "
          "synthesised with espeak-ng from modified phoneme strings. Recall = the injected phone was flagged at τ. "
-         "Diagnosis = the alignment named the substitute exactly (independent of τ). Control FP = the same "
-         "position was flagged in the unmodified synthesis, i.e. a false alarm espeak's audio causes on its own.", "",
-         "| error | n | " + " | ".join(f"recall@{t:g}" for t in REPORT_TAUS) + " | diagnosis | control FP@-2 | heard as |",
-         "|---|---|" + "---|" * len(REPORT_TAUS) + "---|---|---|"]
+         "Diagnosis = unconditional alignment match; cond_diag@-1 / DER@-1 = conditional diagnosis accuracy & error rate "
+         "among detected positives at τ = -1. Control FP = the same position was flagged in unmodified synthesis.", "",
+         "| error | n | " + " | ".join(f"recall@{t:g}" for t in REPORT_TAUS)
+         + " | diagnosis | cond_diag@-1 | DER@-1 | control FP@-2 | heard as |",
+         "|---|---|" + "---|" * len(REPORT_TAUS) + "---|---|---|---|---|"]
     for r in summary["rows"]:
         if r["error"]:
-            L.append(f"| {r['name']} | 0 | " + " | ".join("–" for _ in REPORT_TAUS) + f" | – | – | _{r['error']}_ |")
+            L.append(f"| {r['name']} | 0 | " + " | ".join("–" for _ in REPORT_TAUS) + f" | – | – | – | – | _{r['error']}_ |")
             continue
         heard = ", ".join(f"{h} ×{n}" for h, n in r["heard_as"])
         rendered = r.get("rendered")
@@ -229,11 +296,29 @@ def markdown(summary: dict, skipped) -> str:
         cells = ("n/a " * len(REPORT_TAUS)).split() if untestable else [
             fmt_pct(r["recall"][str(t)]) for t in REPORT_TAUS]
         note = " ⚠️ not rendered" if untestable else ""
+        cond1 = fmt_pct((r.get("cond_diag_acc") or {}).get("-1.0"))
+        der1 = fmt_pct((r.get("der") or {}).get("-1.0"))
         L.append(f"| {r['name']}{note} | {r['n']} | " + " | ".join(cells)
-                 + f" | {fmt_pct(r['diag_acc'])} | {fmt_pct(r['control_fp']['-2.0'])} | {heard} |")
+                 + f" | {fmt_pct(r['diag_acc'])} | {cond1} | {der1} | {fmt_pct(r['control_fp']['-2.0'])} | {heard} |")
     o = summary["overall"]
+    o_cond1 = fmt_pct((o.get("cond_diag_acc") or {}).get("-1.0"))
+    o_der1 = fmt_pct((o.get("der") or {}).get("-1.0"))
     L.append(f"| **all** | {o['n']} | " + " | ".join(fmt_pct(o["recall"][str(t)]) for t in REPORT_TAUS)
-             + f" | {fmt_pct(o['diag_acc'])} | {fmt_pct(o['control_fp']['-2.0'])} | |")
+             + f" | {fmt_pct(o['diag_acc'])} | {o_cond1} | {o_der1} | {fmt_pct(o['control_fp']['-2.0'])} | |")
+    metrics = o.get("metrics") or {}
+    if metrics:
+        L += ["", "## Overall MDD metrics (injected positives vs. control background)", "",
+              "| τ | precision | recall | F1 | MCC | FAR | FRR | cond_diag | DER |",
+              "|---|---|---|---|---|---|---|---|---|"]
+        for t in REPORT_TAUS:
+            m = metrics.get(str(t))
+            if not m:
+                continue
+            mcc = "n/a" if m["mcc"] is None else f"{m['mcc']:.3f}"
+            L.append(
+                f"| {t:g} | {fmt_pct(m['precision'])} | {fmt_pct(m['recall'])} | {fmt_pct(m['f1'])} | "
+                f"{mcc} | {fmt_pct(m['far'])} | {fmt_pct(m['frr'])} | {fmt_pct(m['cond_diag_acc'])} | {fmt_pct(m['der'])} |"
+            )
     if skipped:
         L += ["", f"Skipped {len(skipped)} sentences whose sentence-level espeak phonemes differ from per-word G2P:", ""]
         L += [f"- {t}: {why}" for t, why in skipped]

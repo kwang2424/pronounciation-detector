@@ -112,6 +112,7 @@ def synthesize(text: str, lang: str, talker: Talker | None = None) -> tuple[int,
     payload = text.encode("utf-8")
     with _lock:
         _buffer.clear()
+        _lib.espeak_SetSynthCallback(_c_callback)
         name = talker.voice_name(lang).encode("utf-8")
         if _lib.espeak_SetVoiceByName(name) != 0:
             # Unknown variant: fall back to the plain language voice.

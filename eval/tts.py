@@ -146,6 +146,7 @@ class Espeak:
 
     def _synth(self, text: str, path: Path, phoneme_input: bool) -> None:
         self._buf.clear()
+        self.lib.espeak_SetSynthCallback(self._cb)
         flags = 0x01 | 0x1000 | (0x100 if phoneme_input else 0)   # UTF8 | ENDPAUSE | PHONEMES
         t = text.encode("utf-8")
         if self.lib.espeak_Synth(t, len(t) + 1, 0, 1, 0, flags, None, None) != 0:
