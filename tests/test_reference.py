@@ -116,6 +116,7 @@ def test_clicking_a_row_plays_that_word(shape, monkeypatch, tmp_path):
     import app
 
     monkeypatch.setenv("MDD_REFERENCE", str(tmp_path))
+    monkeypatch.setattr(reference, "_neural_default", FakeNeural())
     rows = [["möchte", "œ", "ɔ", "noisy", "", "tip"], ["Bier", "ʁ", "ɹ", "solid", "", "tip"]]
     table = {"pandas": pd.DataFrame(rows), "list": rows,
              "dict": {"headers": list("abcdef"), "data": rows}}[shape]

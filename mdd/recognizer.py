@@ -3,6 +3,7 @@
 Model: facebook/wav2vec2-xlsr-53-espeak-cv-ft (CTC over espeak IPA, multilingual).
 """
 from dataclasses import dataclass
+import unicodedata
 
 import numpy as np
 import soundfile as sf
@@ -69,19 +70,63 @@ class PhoneRecognizer:
         """Force-align the canonical token sequence and compute a GOP score per token.
 
         GOP(p) = mean_t [ logP(p|x_t) - max_q logP(q|x_t) ] over frames assigned to p.
-        Tokens absent from the model vocab are approximated by their first character.
+        Multi-character tokens absent from the vocab are expanded into constituent
+        vocab sub-tokens before forced alignment and pooled back to each token.
         """
+        if not canonical_tokens or logp.shape[0] == 0:
+            return []
         tok2id = self.processor.tokenizer.get_vocab()
-        ids = []
+        unk_id = self.processor.tokenizer.unk_token_id
+        expanded_ids: list[int] = []
+        group_lens: list[int] = []
         for t in canonical_tokens:
-            ids.append(tok2id.get(t, tok2id.get(t[0], self.processor.tokenizer.unk_token_id)))
-        targets = torch.tensor([ids], dtype=torch.int32)
+            sub = _expand_token(t, tok2id, unk_id)
+            expanded_ids.extend(sub)
+            group_lens.append(len(sub))
+
+        min_frames = len(expanded_ids) + sum(
+            1 for a, b in zip(expanded_ids, expanded_ids[1:]) if a == b
+        )
+        if logp.shape[0] < min_frames:
+            return []
+
+        targets = torch.tensor([expanded_ids], dtype=torch.int32)
         alignment, _ = F.forced_align(logp.unsqueeze(0), targets, blank=self.blank)
-        spans = F.merge_tokens(alignment[0], logp.max(-1).values.exp(), blank=self.blank)
         best = logp.max(-1).values
-        segs = []
-        for tok, span in zip(canonical_tokens, spans):
-            s, e = span.start, span.end
-            frames = logp[s:e, ids[len(segs)]] - best[s:e]
-            segs.append(Segment(tok, s * FRAME_SEC, e * FRAME_SEC, float(frames.mean()) if e > s else 0.0))
+        spans = F.merge_tokens(alignment[0], best.exp(), blank=self.blank)
+        segs: list[Segment] = []
+        offset = 0
+        for tok, k in zip(canonical_tokens, group_lens):
+            sub_spans = spans[offset:offset + k]
+            sub_ids = expanded_ids[offset:offset + k]
+            offset += k
+            s, e = sub_spans[0].start, sub_spans[-1].end
+            frame_scores = [
+                logp[sp.start:sp.end, tid] - best[sp.start:sp.end]
+                for sp, tid in zip(sub_spans, sub_ids)
+                if sp.end > sp.start
+            ]
+            mean_gop = float(torch.cat(frame_scores).mean()) if frame_scores else 0.0
+            segs.append(Segment(tok, s * FRAME_SEC, e * FRAME_SEC, mean_gop))
         return segs
+
+
+def _expand_token(tok: str, tok2id: dict[str, int], unk_id: int) -> list[int]:
+    """Expand a canonical token into vocab IDs, keeping multi-char constituents."""
+    if tok in tok2id:
+        return [tok2id[tok]]
+    nfc = unicodedata.normalize("NFC", tok)
+    if nfc in tok2id:
+        return [tok2id[nfc]]
+    out: list[int] = []
+    i = 0
+    while i < len(tok):
+        hit = next((j for j in range(len(tok), i, -1) if tok[i:j] in tok2id), None)
+        if hit is not None:
+            out.append(tok2id[tok[i:hit]])
+            i = hit
+        else:
+            if tok[i] != "ː" and not unicodedata.combining(tok[i]):
+                out.append(unk_id)
+            i += 1
+    return out or [unk_id]

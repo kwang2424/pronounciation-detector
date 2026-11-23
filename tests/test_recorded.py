@@ -38,15 +38,11 @@ def test_nested_and_flat_layouts_both_index(tmp_path):
     assert store.talkers_for("hund") == ["anna", "bo"]
 
 
-def test_decomposed_filenames_still_match():
+def test_decomposed_filenames_still_match(tmp_path):
     """macOS stores filenames NFD, so 'bønder' off a Mac is not the same string
     as the NFC 'bønder' in the contrast tables unless it is normalised."""
-    import tempfile
-    from pathlib import Path
-
-    root = Path(tempfile.mkdtemp())
-    _write(root / "da" / "anna" / (unicodedata.normalize("NFD", "bønder") + ".wav"))
-    store = RecordedTalkers(root, "da")
+    _write(tmp_path / "da" / "anna" / (unicodedata.normalize("NFD", "bønder") + ".wav"))
+    store = RecordedTalkers(tmp_path, "da")
     assert store.talkers_for("bønder") == ["anna"]
     assert store.talkers_for(unicodedata.normalize("NFD", "bønder")) == ["anna"]
 

@@ -69,16 +69,23 @@ def canonical_signature(text: str, lang: str = DEFAULT_LANG) -> str:
     forgotten. Cheap: espeak G2P is milliseconds against a model forward pass,
     and a language whose behaviour did not change keeps its cache.
     """
+    from mdd.align import GAP, LENGTH_ONLY
     from mdd.languages import get
-    from mdd.pipeline import FLAG_LENGTH_ONLY
+    from mdd.pipeline import FLAG_LENGTH_ONLY, INS_MIN_PROB
 
     profile = get(lang)
     tokens = [t for _, toks in canonical_tokens_by_word(text, lang) for t in toks]
     rules = (
         profile.r_canonical,
         ",".join(sorted(x or "∅" for x in profile.coda_r_ok)),
+        ",".join(sorted(profile.r_variants)),
+        ";".join(f"{k}={v}" for k, v in sorted(profile.equiv.items())),
+        ",".join(sorted(profile.strip)),
         ";".join(f"{k}>{','.join(sorted(v))}" for k, v in sorted(profile.allow.items())),
         str(FLAG_LENGTH_ONLY),
+        str(INS_MIN_PROB),
+        str(GAP),
+        str(LENGTH_ONLY),
     )
     return key(lang, " ".join(tokens), "|".join(rules))
 

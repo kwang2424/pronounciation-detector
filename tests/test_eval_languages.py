@@ -1,4 +1,6 @@
 """The evaluation harness across languages — and that German did not move."""
+import platform
+
 import pytest
 
 from eval.common import canonical_tokens_by_word, load_sentences, results_name
@@ -8,10 +10,14 @@ from eval.tts import default_voices
 def test_german_defaults_are_unchanged():
     """German has committed baseline results and a clip cache keyed by voice name;
     changing either spelling would invalidate the comparison it exists for."""
-    assert default_voices("de") == [
+    expected = [
         "edge:de-DE-KatjaNeural", "edge:de-DE-ConradNeural",
-        "edge:de-DE-AmalaNeural", "edge:de-DE-KillianNeural", "espeak",
+        "edge:de-DE-AmalaNeural", "edge:de-DE-KillianNeural",
     ]
+    if platform.system() == "Windows":
+        expected.append("sapi:Microsoft Hedda Desktop")
+    expected.append("espeak")
+    assert default_voices("de") == expected
     assert results_name("native_control") == "native_control"
     assert results_name("native_control", "de") == "native_control"
 

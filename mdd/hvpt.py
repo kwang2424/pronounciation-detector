@@ -24,6 +24,7 @@ over pairs the synthesiser renders identically.
 from __future__ import annotations
 
 import random
+import time
 import uuid
 from dataclasses import dataclass, field
 from itertools import combinations
@@ -40,6 +41,8 @@ STEP_UP_AFTER = 2
 #: instead of dropping out. Interleaved practice retains better than blocked, and
 #: a contrast never revisited is a contrast quietly being forgotten.
 EXPLORE_FLOOR = 0.25
+#: Tiebreak weight favouring least-recently-practised contrasts across sessions.
+RECENCY_BONUS = 0.15
 
 
 @dataclass
@@ -181,21 +184,63 @@ class Session:
         from .validate import check_contrast
 
         if self.recordings is not None:
-            # Only judge sets the recordings can actually play; a missing clip
-            # would otherwise surface as a KeyError partway through a session.
-            playable = Contrast(
-                id=contrast.id, label=contrast.label, phones=contrast.phones,
-                pairs=tuple(g for g in contrast.pairs if self.recordings.covers(g)),
-                tip=contrast.tip, why=contrast.why, l1=contrast.l1)
-            if not playable.pairs:
+            from .validate import SEPARATION_THRESHOLD, acoustic_separation
+
+            # Only judge sets the recordings have a shared talker for; a missing
+            # clip would otherwise surface as a KeyError partway through a session.
+            playable_pairs = tuple(g for g in contrast.pairs if self.recordings.covers(g))
+            if not playable_pairs:
                 return []
-            # Judge the audio that will actually be played, not espeak's.
-            report = check_contrast(playable, self.profile, audio=True,
-                                    render=self.recordings.renderer(),
-                                    talkers=self.recordings.talkers)
-            self._record_pair_talkers(playable)
-        else:
-            report = check_contrast(contrast, self.profile, audio=audio_check)
+            # Compute per-talker acoustic separation once per unique pair.
+            pair_passing: dict[tuple[str, str], set[str]] = {}
+            renderer = self.recordings.renderer()
+            for group in playable_pairs:
+                for a, b in combinations(group, 2):
+                    if (a, b) in pair_passing:
+                        continue
+                    shared = self.recordings.shared_talkers((a, b))
+                    per = (
+                        acoustic_separation(
+                            a, b, self.profile.synth_voice,
+                            render=renderer, talkers=shared, per_talker=True,
+                        )
+                        if shared else {}
+                    ) or {}
+                    passing = {t for t, r in per.items() if r >= SEPARATION_THRESHOLD}
+                    pair_passing[(a, b)] = passing
+                    pair_passing[(b, a)] = passing
+
+            groups = []
+            for group in playable_pairs:
+                # Keep the words in a set that share at least one separating talker
+                # across every pair among them, so narrowed sets stay key-consistent.
+                keep: list[str] = []
+                keep_talkers: set[str] | None = None
+                for w in group:
+                    if not keep:
+                        keep.append(w)
+                        continue
+                    cand_talkers = keep_talkers
+                    valid = True
+                    for k in keep:
+                        pt = pair_passing.get((k, w))
+                        if not pt:
+                            valid = False
+                            break
+                        cand_talkers = set(pt) if cand_talkers is None else (cand_talkers & pt)
+                        if not cand_talkers:
+                            valid = False
+                            break
+                    if valid and cand_talkers:
+                        keep.append(w)
+                        keep_talkers = cand_talkers
+                if len(keep) >= MIN_CHOICES and keep_talkers:
+                    keep_tuple = tuple(keep)
+                    groups.append(keep_tuple)
+                    self._pair_talkers[keep_tuple] = sorted(keep_talkers)
+            return groups
+
+        report = check_contrast(contrast, self.profile, audio=audio_check)
         ok = {(c.word_a, c.word_b) for c in report.usable_pairs}
         groups = []
         for group in contrast.pairs:
@@ -227,21 +272,6 @@ class Session:
         for key, n in live.confusions.items():
             merged.confusions[key] = merged.confusions.get(key, 0) + n
         return merged
-
-    def _record_pair_talkers(self, contrast: Contrast) -> None:
-        """Note which talkers separate each set, so trials only use those."""
-        from .validate import SEPARATION_THRESHOLD, acoustic_separation
-
-        for group in contrast.pairs:
-            ok = set(self.recordings.talkers)
-            for a, b in combinations(group, 2):
-                per = acoustic_separation(a, b, self.profile.synth_voice,
-                                          render=self.recordings.renderer(),
-                                          talkers=self.recordings.talkers,
-                                          per_talker=True) or {}
-                ok &= {t for t, r in per.items() if r >= SEPARATION_THRESHOLD}
-            if ok:
-                self._pair_talkers[tuple(group)] = sorted(ok)
 
     def _talker_pool(self, group: tuple[str, ...] | None = None):
         if self.recordings is not None:
@@ -292,13 +322,23 @@ class Session:
             return self.rng.choice(unseen)
 
         ids = list(self.pools)
-        weights = [(1.0 - self.combined(c).accuracy) + EXPLORE_FLOOR for c in ids]
+        known = [self._last_practiced[c] for c in ids if c in self._last_practiced]
+        lo, hi = (min(known), max(known)) if known else (0.0, 0.0)
+        span = hi - lo
+        weights = []
+        for c in ids:
+            base = (1.0 - self.combined(c).accuracy) + EXPLORE_FLOOR
+            if span > 0:
+                ts = self._last_practiced.get(c, lo)
+                base += RECENCY_BONUS * ((hi - ts) / span)
+            weights.append(base)
         return self.rng.choices(ids, weights=weights, k=1)[0]
 
     def record(self, trial: Trial, choice: str | int) -> bool:
         correct = trial.is_correct(choice)
         st = self.stats.setdefault(trial.contrast_id, ContrastStats())
         st.seen += 1
+        self._last_practiced[trial.contrast_id] = time.time()
         if correct:
             st.correct += 1
             self._streak += 1

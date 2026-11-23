@@ -10,11 +10,11 @@ from .align import align
 from .diagnose import tip_for
 from .g2p import text_to_ipa_words
 from .languages import LanguageProfile, get
-from .normalize import tokenize
+from .normalize import tokenize, tokenize_with_conf
 
 GOP_THRESHOLD = -1.0   # native TTS voices give 2.6% phone FPR here (4.3% with the gate off at 0);
                        # kept slightly conservative for noisier microphone audio. See eval/results/.
-VERSION = 3            # bump when alignment/flagging rules change (invalidates eval caches)
+VERSION = 4            # bump when alignment/flagging rules change (invalidates eval caches)
 FLAG_LENGTH_ONLY = False   # aː vs a etc.: 37% false-positive rate on native speech, so off by default
 INS_MIN_PROB = 0.6     # an inserted phone counts only if the recogniser was this sure of it (spurious
                        # insertions on native speech have median confidence 0.38, real phones 0.95)
@@ -43,24 +43,14 @@ class PhoneResult:
     flagged: bool
     tip: str | None
     conf: float | None = None   # recogniser confidence in the realised phone (insertions only)
+    word_idx: int | None = None
 
 
 def _token_confidences(spikes: list[tuple[str, float]], real_tokens: list[str],
                        profile: LanguageProfile) -> list[float] | None:
     """Carry each spike's confidence over to the normalised token list. Returns None if the
     per-spike tokenisation cannot be reconciled with tokenize() of the joined string."""
-    toks, conf = [], []
-    for tok, c in spikes:
-        for sub in tokenize(tok, profile):
-            toks.append(sub)
-            conf.append(c)
-    i = 0
-    while i < len(toks) - 1:          # tokenize() merges e.g. a+ɪ -> aɪ across spikes
-        if toks[i] + toks[i + 1] in profile.multi:
-            toks[i:i + 2] = [toks[i] + toks[i + 1]]
-            conf[i:i + 2] = [min(conf[i], conf[i + 1])]
-        else:
-            i += 1
+    toks, conf = tokenize_with_conf(spikes, profile)
     return conf if toks == real_tokens else None
 
 
@@ -74,11 +64,12 @@ def analyse(text: str, wav_path: str | None = None, recognizer=None, realized_ip
     """If `realized_ipa` is given, skip audio (useful for tests / synthetic eval)."""
     profile = lang if isinstance(lang, LanguageProfile) else get(lang)
     words = text_to_ipa_words(text, profile)
-    canon_tokens, word_of, coda_of = [], [], []
-    for w, ipa in words:
+    canon_tokens, word_of, word_idx_of, coda_of = [], [], [], []
+    for wi, (w, ipa) in enumerate(words):
         toks = tokenize(ipa, profile)
         canon_tokens += toks
         word_of += [w] * len(toks)
+        word_idx_of += [wi] * len(toks)
         coda_of += _coda_flags(toks)
 
     gops, confs = None, None
@@ -88,6 +79,8 @@ def analyse(text: str, wav_path: str | None = None, recognizer=None, realized_ip
         spikes = recognizer.greedy_spikes(logp)
         realized_ipa = "".join(tok for tok, _ in spikes)
         gops = [s.gop for s in recognizer.gop(logp, canon_tokens)]
+        if len(gops) != len(canon_tokens):
+            gops = None
     real_tokens = tokenize(realized_ipa, profile)
     if gops is not None:
         confs = _token_confidences(spikes, real_tokens, profile)
@@ -101,6 +94,7 @@ def analyse(text: str, wav_path: str | None = None, recognizer=None, realized_ip
         if op.op != "ins":
             gop = gops[ci] if gops else None
             word = word_of[ci]
+            word_idx = word_idx_of[ci]
             if (op.canonical == profile.r_canonical and coda_of[ci]
                     and op.realized in profile.coda_r_ok):
                 kind = "match"
@@ -110,28 +104,44 @@ def analyse(text: str, wav_path: str | None = None, recognizer=None, realized_ip
                 kind = "match"
             ci += 1
         else:
-            word = word_of[min(ci, len(word_of) - 1)] if word_of else None
+            if word_of:
+                prev_ci = max(ci - 1, 0)
+                word = word_of[prev_ci]
+                word_idx = word_idx_of[prev_ci]
+            else:
+                word, word_idx = None, None
         if kind == "ins":
             flagged = conf is None or conf >= INS_MIN_PROB
         else:
             flagged = kind != "match" and (gop is None or gop < threshold)
         results.append(PhoneResult(word, op.canonical, op.realized, kind, gop, flagged,
                                    tip_for(op.canonical, op.realized, profile) if flagged else None,
-                                   conf if kind == "ins" else None))
+                                   conf if kind == "ins" else None,
+                                   word_idx))
 
     word_scores = {}
+    word_min_gop: dict[int, float] = {}
     for r in results:
         if r.word and r.gop is not None:
             word_scores[r.word] = min(word_scores.get(r.word, 0.0), r.gop)
+        if r.word_idx is not None and r.gop is not None:
+            word_min_gop[r.word_idx] = min(word_min_gop.get(r.word_idx, 0.0), r.gop)
+    word_scores_by_index = [
+        {"index": wi, "word": w, "min_gop": word_min_gop[wi]}
+        for wi, (w, _) in enumerate(words)
+        if wi in word_min_gop
+    ]
     n_canon = sum(1 for r in results if r.op != "ins")
     return {
         "text": text,
         "lang": profile.code,
         "canonical": " ".join(canon_tokens),
         "realized": " ".join(real_tokens),
+        "words": [w for w, _ in words],
         "phones": [asdict(r) for r in results],
         "word_scores": word_scores,
-        "overall": 1 - sum(r.flagged for r in results) / max(n_canon, 1),
+        "word_scores_by_index": word_scores_by_index,
+        "overall": max(0.0, 1 - sum(r.flagged for r in results) / max(n_canon, 1)),
     }
 
 

@@ -113,9 +113,19 @@ class RecordedTalkers:
     def has(self, word: str, talker: str) -> bool:
         return talker in self.clips.get(_key(word), {})
 
+    def shared_talkers(self, words) -> list[str]:
+        """Sorted talkers that have recordings for every word in `words`."""
+        words = list(words)
+        if not words:
+            return []
+        common = set(self.talkers_for(words[0]))
+        for w in words[1:]:
+            common &= set(self.talkers_for(w))
+        return sorted(common)
+
     def covers(self, words) -> bool:
-        """True when every word has at least one talker — what a trial needs."""
-        return all(self.talkers_for(w) for w in words)
+        """True when at least one talker has recordings for every word in `words`."""
+        return bool(self.shared_talkers(words))
 
     def __len__(self) -> int:
         return sum(len(v) for v in self.clips.values())

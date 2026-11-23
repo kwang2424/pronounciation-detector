@@ -52,24 +52,31 @@ def run(lang_name: str, text: str, audio_path: str | None, ipa: str, threshold: 
 
     flagged = [p for p in rep["phones"] if p["flagged"]]
     bad_words = {p["word"] for p in flagged}
-    highlighted = [(w, "check" if w in bad_words else None) for w in _words(text)]
+    bad_indices = {p["word_idx"] for p in flagged if p.get("word_idx") is not None}
+    rep_words = rep.get("words") or _words(text)
+    if bad_indices:
+        highlighted = [(w, "check" if i in bad_indices else None) for i, w in enumerate(rep_words)]
+        n_bad_words = len(bad_indices)
+    else:
+        highlighted = [(w, "check" if w in bad_words else None) for w in rep_words]
+        n_bad_words = len(bad_words)
 
     # A flag is not evidence on its own: on native German the recogniser reports
     # /d/ as [t] in 2.8% of its occurrences, so that row deserves less weight
     # than one for a phone it never mis-hears.
     rows = [[p["word"], p["canonical"] or "—", p["realized"] or "—",
-             reliability(p["canonical"], code, p["realized"]).level,
+             reliability(p["canonical"], code, p["realized"], threshold=threshold).level,
              "" if p["gop"] is None else f"{p['gop']:.2f}", p["tip"]] for p in flagged]
     score = rep["overall"]
     summary = (f"**Score: {score:.0%}** · {len(flagged)} issue{'s' if len(flagged) != 1 else ''} "
-               f"across {len(bad_words)} word{'s' if len(bad_words) != 1 else ''}"
+               f"across {n_bad_words} word{'s' if n_bad_words != 1 else ''}"
                if flagged else f"**Score: {score:.0%}** · no issues detected")
     noisy = [f"`{p['canonical']}`→`{p['realized']}`" for p in flagged
-             if reliability(p["canonical"], code, p["realized"]).level == "noisy"]
+             if reliability(p["canonical"], code, p["realized"], threshold=threshold).level == "noisy"]
     if noisy:
         summary += ("\n\n⚠️ " + ", ".join(dict.fromkeys(noisy)) +
                     " occur on native speech too — weigh those rows less.")
-    blind = blind_spots(code)
+    blind = blind_spots(code, threshold=threshold)
     if blind:
         worst = ", ".join(f"`{k}`" for k, v in sorted(blind.items(), key=lambda kv: kv[1])[:4])
         summary += (f"\n\n*Not detectable at all ({worst}): a clean report is not "
@@ -244,88 +251,97 @@ def _trend(session: Session) -> str:
 
 
 # --------------------------------------------------------------------------
-with gr.Blocks(title="Pronunciation trainer") as demo:
-    gr.Markdown("# Pronunciation trainer\nPerception training and production feedback, "
-                "driven by per-language contrast tables.")
+def build_demo() -> gr.Blocks:
+    with gr.Blocks(title="Pronunciation trainer") as demo:
+        gr.Markdown("# Pronunciation trainer\nPerception training and production feedback, "
+                    "driven by per-language contrast tables.")
 
-    with gr.Tab("Say it (production)"):
-        with gr.Row():
-            with gr.Column():
-                lang = gr.Dropdown(list(LANGS), value="German", label="Language")
-                text = gr.Textbox(label="German sentence", value=PROFILES["de"].example, lines=2)
-                with gr.Row():
-                    hear = gr.Button("🔊 Hear it said correctly")
-                    slow = gr.Checkbox(label="Slow", value=False)
-                reference = gr.Audio(label="Correct pronunciation", interactive=False,
-                                     autoplay=True, type="filepath")
-                reference_note = gr.Markdown()
-                audio = gr.Audio(label="Your recording", sources=["microphone", "upload"],
-                                 type="filepath")
-                with gr.Accordion("Advanced", open=False):
-                    threshold = gr.Slider(-6.0, 0.0, value=GOP_THRESHOLD, step=0.25,
-                                          label="Strictness (GOP threshold)",
-                                          info="Closer to 0 flags more; more negative flags less.")
-                    ipa = gr.Textbox(label="Dry run: realised IPA (skips audio and model)",
-                                     placeholder="ɪk mɔktə aɪn biːɹ")
-                btn = gr.Button("Analyse", variant="primary")
-            with gr.Column():
-                summary = gr.Markdown()
-                words = gr.HighlightedText(label="Words", color_map={"check": "#f59e0b"},
-                                           show_legend=False)
-                table = gr.Dataframe(
-                    headers=["Word", "Expected", "Heard", "Confidence", "GOP", "Tip"],
-                    datatype=["str"] * 6, wrap=True,
-                    label="Flagged sounds — click a row to hear that word said correctly",
-                    column_widths=["13%", "10%", "10%", "12%", "7%", "48%"])
-                word_reference = gr.Audio(label="Selected word, said correctly",
-                                          interactive=False, autoplay=True, type="filepath")
-                word_note = gr.Markdown()
-                ipa_view = gr.Markdown()
-        lang.change(on_lang_change, lang, text)
-        hear.click(hear_sentence, [lang, text, slow], [reference, reference_note])
-        table.select(hear_word, [lang, slow, table], [word_reference, word_note])
-        btn.click(run, [lang, text, audio, ipa, threshold], [summary, words, table, ipa_view])
+        with gr.Tab("Say it (production)"):
+            with gr.Row():
+                with gr.Column():
+                    lang = gr.Dropdown(list(LANGS), value="German", label="Language")
+                    text = gr.Textbox(label="German sentence", value=PROFILES["de"].example, lines=2)
+                    with gr.Row():
+                        hear = gr.Button("🔊 Hear it said correctly")
+                        slow = gr.Checkbox(label="Slow", value=False)
+                    reference = gr.Audio(label="Correct pronunciation", interactive=False,
+                                         autoplay=True, type="filepath")
+                    reference_note = gr.Markdown()
+                    audio = gr.Audio(label="Your recording", sources=["microphone", "upload"],
+                                     type="filepath")
+                    with gr.Accordion("Advanced", open=False):
+                        threshold = gr.Slider(-6.0, 0.0, value=GOP_THRESHOLD, step=0.25,
+                                              label="Strictness (GOP threshold)",
+                                              info="Closer to 0 flags more; more negative flags less.")
+                        ipa = gr.Textbox(label="Dry run: realised IPA (skips audio and model)",
+                                         placeholder="ɪk mɔktə aɪn biːɹ")
+                    btn = gr.Button("Analyse", variant="primary")
+                with gr.Column():
+                    summary = gr.Markdown()
+                    words = gr.HighlightedText(label="Words", color_map={"check": "#f59e0b"},
+                                               show_legend=False)
+                    table = gr.Dataframe(
+                        headers=["Word", "Expected", "Heard", "Confidence", "GOP", "Tip"],
+                        datatype=["str"] * 6, wrap=True,
+                        label="Flagged sounds — click a row to hear that word said correctly",
+                        column_widths=["13%", "10%", "10%", "12%", "7%", "48%"])
+                    word_reference = gr.Audio(label="Selected word, said correctly",
+                                              interactive=False, autoplay=True, type="filepath")
+                    word_note = gr.Markdown()
+                    ipa_view = gr.Markdown()
+            lang.change(on_lang_change, lang, text)
+            hear.click(hear_sentence, [lang, text, slow], [reference, reference_note])
+            table.select(hear_word, [lang, slow, table], [word_reference, word_note])
+            btn.click(run, [lang, text, audio, ipa, threshold], [summary, words, table, ipa_view])
 
-    with gr.Tab("Hear it (perception)"):
-        gr.Markdown(
-            "Identify the word you hear. The voice changes every trial — hearing a contrast "
-            "from many talkers is what builds a category that survives new speakers "
-            "(Logan, Lively & Pisoni 1991). Perception gains transfer to production "
-            "(Bradlow et al. 1997), so this is worth doing before you record anything."
-        )
-        session_state = gr.State()
-        trial_state = gr.State()
-        with gr.Row():
-            with gr.Column():
-                plang = gr.Dropdown(list(PERCEPTION_LANGS), value="Danish", label="Language")
-                start = gr.Button("Start session", variant="primary")
-                prompt = gr.Markdown()
-                stimulus = gr.Audio(label="What did you hear?", interactive=False,
-                                    autoplay=True, type="filepath")
-                choices = gr.Radio([], label="Your answer", visible=False)
-                answer = gr.Button("Submit answer", variant="primary")
-            with gr.Column():
-                feedback = gr.Markdown()
-                stats = gr.Markdown()
-                trend = gr.Markdown()
-        outs = [trial_state, stimulus, prompt, choices, feedback, stats, trend]
-        start.click(start_session, plang, [session_state, *outs])
-        answer.click(submit, [session_state, trial_state, choices], outs)
+        with gr.Tab("Hear it (perception)"):
+            gr.Markdown(
+                "Identify the word you hear. The voice changes every trial — hearing a contrast "
+                "from many talkers is what builds a category that survives new speakers "
+                "(Logan, Lively & Pisoni 1991). Perception gains transfer to production "
+                "(Bradlow et al. 1997), so this is worth doing before you record anything."
+            )
+            session_state = gr.State()
+            trial_state = gr.State()
+            with gr.Row():
+                with gr.Column():
+                    plang = gr.Dropdown(list(PERCEPTION_LANGS), value="Danish", label="Language")
+                    start = gr.Button("Start session", variant="primary")
+                    prompt = gr.Markdown()
+                    stimulus = gr.Audio(label="What did you hear?", interactive=False,
+                                        autoplay=True, type="filepath")
+                    choices = gr.Radio([], label="Your answer", visible=False)
+                    answer = gr.Button("Submit answer", variant="primary")
+                with gr.Column():
+                    feedback = gr.Markdown()
+                    stats = gr.Markdown()
+                    trend = gr.Markdown()
+            outs = [trial_state, stimulus, prompt, choices, feedback, stats, trend]
+            start.click(start_session, plang, [session_state, *outs])
+            answer.click(submit, [session_state, trial_state, choices], outs)
 
-    with gr.Tab("Coverage"):
-        gr.Markdown("### What each language's G2P can and cannot be trusted with\n"
-                    "Run `python -m mdd.validate` to re-check these against espeak-ng.")
-        for code, profile in PROFILES.items():
-            ready = "trains perception" if profile.hvpt_ready else "**perception disabled**"
-            body = [f"## {profile.name} (`{code}`) — {ready}"]
-            if profile.g2p_caveat:
-                body.append(f"> {profile.g2p_caveat}")
-            if profile.hvpt_caveat:
-                body.append(f"> {profile.hvpt_caveat}")
-            body.append("")
-            for c in profile.contrasts:
-                body.append(f"- **{c.label}** — {c.why}")
-            gr.Markdown("\n".join(body))
+        with gr.Tab("Coverage"):
+            gr.Markdown("### What each language's G2P can and cannot be trusted with\n"
+                        "Run `python -m mdd.validate` to re-check these against espeak-ng.")
+            for code, profile in PROFILES.items():
+                ready = "trains perception" if profile.hvpt_ready else "**perception disabled**"
+                body = [f"## {profile.name} (`{code}`) — {ready}"]
+                if profile.g2p_caveat:
+                    body.append(f"> {profile.g2p_caveat}")
+                if profile.hvpt_caveat:
+                    body.append(f"> {profile.hvpt_caveat}")
+                body.append("")
+                for c in profile.contrasts:
+                    body.append(f"- **{c.label}** — {c.why}")
+                gr.Markdown("\n".join(body))
+    return demo
+
+
+def __getattr__(name: str):
+    if name == "demo":
+        return build_demo()
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
 
 if __name__ == "__main__":
-    demo.launch()
+    build_demo().launch()

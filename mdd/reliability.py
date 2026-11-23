@@ -22,6 +22,8 @@ from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
 
+from .pipeline import GOP_THRESHOLD
+
 RESULTS = Path(__file__).resolve().parent.parent / "eval" / "results"
 
 #: A phone falsely flagged on this share of its native occurrences is one whose
@@ -77,27 +79,50 @@ def _results_path(lang: str, name: str) -> Path:
     return RESULTS / (name if lang == "de" else f"{lang}/{name}")
 
 
-@lru_cache(maxsize=8)
-def _native(lang: str) -> dict[str, dict]:
+def _pick_tau_key(mapping: dict[str, object], threshold: float | None) -> str | None:
+    if not mapping:
+        return None
+    target = GOP_THRESHOLD if threshold is None else float(threshold)
+    exact = str(target)
+    if exact in mapping:
+        return exact
+    parsed: list[tuple[float, float, str]] = []
+    for k in mapping:
+        try:
+            fk = float(k)
+        except ValueError:
+            continue
+        parsed.append((abs(fk - target), fk, k))
+    return min(parsed)[2] if parsed else None
+
+
+@lru_cache(maxsize=32)
+def _native(lang: str, threshold: float | None = None) -> tuple[dict[str, dict], bool]:
     path = _results_path(lang, "native_control.json")
     if not path.exists():
-        return {}
+        return {}, False
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, ValueError):
-        return {}
+        return {}, False
+    by_tau = data.get("per_phone_by_tau")
+    if isinstance(by_tau, dict) and by_tau:
+        tau_key = _pick_tau_key(by_tau, threshold)
+        rows = by_tau.get(tau_key, []) if tau_key is not None else []
+    else:
+        rows = data.get("per_phone", [])
     out = {}
-    for row in data.get("per_phone", []):
+    for row in rows:
         canonical = row.get("canonical")
         if canonical and canonical != "(insertion)":
             heard = row.get("heard_as") or []
             out[canonical] = {"rate": row.get("rate"),
                               "heard": heard[0][0] if heard else None}
-    return out
+    return out, bool(data.get("per_phone_complete"))
 
 
-@lru_cache(maxsize=8)
-def blind_spots(lang: str) -> dict[str, float]:
+@lru_cache(maxsize=32)
+def blind_spots(lang: str, threshold: float | None = None) -> dict[str, float]:
     """Error types the recogniser essentially never catches, name -> recall.
 
     Their absence from a report means nothing, which is worth saying out loud:
@@ -113,7 +138,9 @@ def blind_spots(lang: str) -> dict[str, float]:
         return {}
     out = {}
     for row in data.get("rows", []):
-        recall = (row.get("recall") or {}).get("-2.0")
+        recall_map = row.get("recall") or {}
+        tau_key = _pick_tau_key(recall_map, threshold)
+        recall = recall_map.get(tau_key) if tau_key is not None else None
         if recall is None or recall > BLIND_RECALL:
             continue
         # Low recall only means the recogniser is blind if the injected error was
@@ -131,13 +158,17 @@ def blind_spots(lang: str) -> dict[str, float]:
 
 
 def reliability(canonical: str | None, lang: str = "de",
-                realized: str | None = None) -> Reliability:
+                realized: str | None = None,
+                threshold: float | None = None) -> Reliability:
     if canonical is None:
         return Reliability()
-    row = _native(lang).get(canonical)
+    table, is_complete = _native(lang, threshold)
+    row = table.get(canonical)
     if row is None:
-        # Absent from the table means it was never falsely flagged in the control.
-        return Reliability(0.0, None) if _native(lang) else Reliability()
+        if is_complete:
+            return Reliability()
+        # Legacy truncated tables omit phones with few/no false flags.
+        return Reliability(0.0, None) if table else Reliability()
     heard = row.get("heard")
     return Reliability(row.get("rate"), heard,
                        matches_usual=realized is not None and realized == heard)

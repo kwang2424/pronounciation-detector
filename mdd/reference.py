@@ -96,8 +96,11 @@ def _neural_default(text: str, voice: str, rate: str):
     return asyncio.run(asyncio.wait_for(_edge(text, voice, rate), NEURAL_TIMEOUT_S))
 
 
+_DEFAULT_NEURAL = object()
+
+
 def speak(text: str, lang: str = "de", slow: bool = False, root: Path | None = None,
-          neural=_neural_default) -> Reference:
+          neural=_DEFAULT_NEURAL) -> Reference:
     """Render `text` as it should sound, returning a cached wav.
 
     `neural` is the neural renderer — (text, voice, rate) -> (samples, rate) — or
@@ -110,6 +113,9 @@ def speak(text: str, lang: str = "de", slow: bool = False, root: Path | None = N
 
     from . import synth
 
+    if neural is _DEFAULT_NEURAL:
+        neural = _neural_default
+
     profile = get(lang)
     text = _spoken(text)
     root = Path(root) if root is not None else default_root()
@@ -118,17 +124,18 @@ def speak(text: str, lang: str = "de", slow: bool = False, root: Path | None = N
 
     voice = REFERENCE_VOICES.get(profile.code)
     rate = SLOW_RATE if slow else "+0%"
-    if voice and neural is not None and _neural_available():
+    if voice and neural is not None:
         path = folder / f"{_key(voice, rate, text)}.wav"
         if path.exists():
             return Reference(path, "neural", voice, slow)
-        try:
-            data, sr = neural(text, voice, rate)
-            sf.write(str(path), polish(data, sr), sr)
-            _neural_failed_at = None
-            return Reference(path, "neural", voice, slow)
-        except Exception:
-            _neural_failed_at = time.monotonic()   # offline or blocked: back off
+        if _neural_available():
+            try:
+                data, sr = neural(text, voice, rate)
+                sf.write(str(path), polish(data, sr), sr)
+                _neural_failed_at = None
+                return Reference(path, "neural", voice, slow)
+            except Exception:
+                _neural_failed_at = time.monotonic()   # offline or blocked: back off
 
     talker = synth.Talker("", SLOW_WPM if slow else NORMAL_WPM, 50)
     path = folder / f"{_key('espeak', str(talker.wpm), text)}-espeak.wav"

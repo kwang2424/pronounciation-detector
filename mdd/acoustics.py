@@ -119,7 +119,7 @@ def analyse(samples, sr: int) -> Anatomy:
     rms = np.sqrt((frames ** 2).mean(axis=1))
     loud = rms.max()
     if loud <= 0:
-        return Anatomy(len(x) / sr, 1.0, 1.0, 1.0, 0.0, "too-short")
+        return Anatomy(len(x) / sr, 1.0, 1.0, 1.0, 1.0, 1.0, 0.0, "too-short")
 
     # Trim leading/trailing silence, then ignore the first and last voiced frames
     # so a word's own onset and offset are not mistaken for an interior dip.

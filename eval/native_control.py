@@ -13,6 +13,8 @@ if __name__ == "__main__":
 import argparse  # noqa: E402
 from collections import Counter, defaultdict  # noqa: E402
 
+from mdd.pipeline import GOP_THRESHOLD  # noqa: E402
+
 from .common import CACHE, DEFAULT_LANG, THRESHOLDS, analyse_cached, cache_stats, fmt_pct, is_flagged, key, load_sentences, results_name, write_results  # noqa: E402
 from .tts import default_voices, synth_missing  # noqa: E402
 
@@ -53,7 +55,7 @@ def rates(reps: list[tuple[str, dict]]) -> dict:
     return res
 
 
-def per_phone(reps: list[tuple[str, dict]], tau: float, top: int = 20) -> list[dict]:
+def per_phone(reps: list[tuple[str, dict]], tau: float, top: int | None = None) -> list[dict]:
     flags, total, heard = Counter(), Counter(), defaultdict(Counter)
     for _, r in reps:
         for p in r["phones"]:
@@ -63,9 +65,15 @@ def per_phone(reps: list[tuple[str, dict]], tau: float, top: int = 20) -> list[d
             if is_flagged(p, tau):
                 flags[k] += 1
                 heard[k][p["realized"] or "∅"] += 1
-    return [{"canonical": k, "false_flags": n, "occurrences": total[k],
-             "rate": n / total[k] if total[k] else None,
-             "heard_as": heard[k].most_common(3)} for k, n in flags.most_common(top)]
+    keys = [k for k in total if total[k] > 0]
+    if flags["(insertion)"] > 0:
+        keys.append("(insertion)")
+    keys.sort(key=lambda k: (-flags[k], -total[k], k))
+    if top is not None:
+        keys = keys[:top]
+    return [{"canonical": k, "false_flags": flags[k], "occurrences": total[k],
+             "rate": flags[k] / total[k] if total[k] else None,
+             "heard_as": heard[k].most_common(3)} for k in keys]
 
 
 def recommend(res: dict) -> float | None:
@@ -163,7 +171,8 @@ def markdown(summary: dict) -> str:
             L += [""]
     L += [f"## Most falsely flagged phones (natural voices, τ = {summary['per_phone_tau']:g})", "",
           "| canonical | false flags | occurrences | rate | heard as |", "|---|---|---|---|---|"]
-    for row in summary["per_phone"]:
+    shown = [row for row in summary["per_phone"] if row["false_flags"] > 0][:20]
+    for row in shown:
         heard = ", ".join(f"{h} ×{n}" for h, n in row["heard_as"])
         L.append(f"| {row['canonical']} | {row['false_flags']} | {row['occurrences']} | {fmt_pct(row['rate'])} | {heard} |")
     return "\n".join(L) + "\n"
@@ -175,7 +184,7 @@ def main():
     ap.add_argument("--lang", default=DEFAULT_LANG, help="language code (de, fr, ...)")
     ap.add_argument("--voices", default=None,
                     help="comma-separated voice specs; defaults to this language's neural voices")
-    ap.add_argument("--per-phone-tau", type=float, default=-2.0)
+    ap.add_argument("--per-phone-tau", type=float, default=GOP_THRESHOLD)
     a = ap.parse_args()
     voices = [v for v in (a.voices or ",".join(default_voices(a.lang))).split(",") if v]
     reports = collect(voices, load_sentences(a.n, a.lang), a.lang)
@@ -184,13 +193,16 @@ def main():
     # voice name for non-German languages ("espeak:fr").
     natural = [tr for v, reps in reports.items() if not v.startswith("espeak") for tr in reps]
     everything = [tr for reps in reports.values() for tr in reps]
+    pool = natural or everything
     summary = {
         "thresholds": THRESHOLDS,
         "voices": {v: rates(reps) for v, reps in reports.items()},
-        "natural": rates(natural or everything),
+        "natural": rates(pool),
         "all": rates(everything),
         "per_phone_tau": a.per_phone_tau,
-        "per_phone": per_phone(natural or everything, a.per_phone_tau),
+        "per_phone_complete": True,
+        "per_phone": per_phone(pool, a.per_phone_tau, top=None),
+        "per_phone_by_tau": {str(t): per_phone(pool, t, top=None) for t in THRESHOLDS},
         # Per voice as well as pooled: when one talker's disagreement is several
         # times another's, the pooled table describes that talker, not the
         # language, and the only way to tell an accent apart from a recording

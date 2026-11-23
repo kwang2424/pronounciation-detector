@@ -28,12 +28,23 @@ from .languages import DEFAULT
 _SEP = Separator(phone="", word="|", syllable="")
 
 #: Texts whose sentence-level phonemisation could not be aligned to their words,
-#: and so fell back to per-word. Diagnostic only; reset on each call.
+#: and so fell back to per-word. Diagnostic only; accumulates across calls
+#: (call `last_fallbacks.clear()` to reset).
 last_fallbacks: list[str] = []
 
 
 def _is_punctuation(token: str) -> bool:
     return all(unicodedata.category(ch).startswith("P") or ch.isspace() for ch in token)
+
+
+def _strip_outer_punct(word: str) -> str:
+    """Strip leading and trailing Unicode punctuation, preserving internal marks."""
+    start, end = 0, len(word)
+    while start < end and unicodedata.category(word[start]).startswith("P"):
+        start += 1
+    while end > start and unicodedata.category(word[end - 1]).startswith("P"):
+        end -= 1
+    return word[start:end]
 
 
 def _phonemize(texts: list[str], lang: str) -> list[str]:
@@ -58,7 +69,7 @@ def text_to_ipa_words(text: str, lang=None) -> list[tuple[str, str]]:
     # French typography spaces punctuation off ("soir ?"), so a bare split yields
     # tokens espeak produces nothing for — a spurious word-count mismatch that
     # would send the whole sentence down the per-word path and lose its liaison.
-    words = [w for w in text.replace("\n", " ").split(" ")
+    words = [w for w in text.split()
              if w and not _is_punctuation(w)]
     if not words:
         return []
@@ -73,7 +84,7 @@ def text_to_ipa_words(text: str, lang=None) -> list[tuple[str, str]]:
     out = []
     for w, p in zip(words, ipa):
         p = p.replace("|", "").strip()
-        clean = w.strip(".,;:!?\"'()")
+        clean = _strip_outer_punct(w)
         if p:
             out.append((clean, p))
     return out
