@@ -59,7 +59,8 @@ def preprocess_recording(
     wav,
     sr: int = 16000,
     *,
-    pad_ms: float = 150.0,
+    pad_ms: float = 300.0,
+    trim_over_ms: float = 1200.0,
     min_speech_ms: float = 120.0,
     min_snr_db: float = 6.0,
     min_rms: float = 0.005,
@@ -114,15 +115,18 @@ def preprocess_recording(
             return AudioCheck(x, x.size / sr, 0.0, est_snr, clipped_frac, tuple(warnings), "low-snr")
 
     noise_gate = (noise_rms * 2.5) if (len(quiet) >= 3 and noise_rms > 1e-6) else 0.0
-    vad_thresh = max(min_rms, noise_gate, peak_rms * 0.10)
+    vad_thresh = max(min_rms, noise_gate, peak_rms * 0.05)
     active = np.flatnonzero(rms >= vad_thresh)
     voiced_s = len(active) * hop / sr
     if len(active) == 0 or voiced_s < min_speech_ms / 1000.0:
         return AudioCheck(x, x.size / sr, voiced_s, snr_db, clipped_frac, tuple(warnings), "too-short")
 
+    speech_start = int(active[0] * hop)
+    speech_end = min(x.size, int(active[-1] * hop) + win)
+    trigger = int(sr * trim_over_ms / 1000.0)
     pad = int(sr * pad_ms / 1000.0)
-    trim_start = max(0, int(active[0] * hop) - pad)
-    trim_end = min(x.size, int(active[-1] * hop) + win + pad)
+    trim_start = max(0, speech_start - pad) if speech_start > trigger else 0
+    trim_end = min(x.size, speech_end + pad) if (x.size - speech_end) > trigger else x.size
     trimmed = x[trim_start:trim_end]
     return AudioCheck(trimmed, trimmed.size / sr, voiced_s, snr_db, clipped_frac, tuple(warnings), None)
 

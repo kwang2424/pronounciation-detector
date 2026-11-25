@@ -71,7 +71,16 @@ def canonical_signature(text: str, lang: str = DEFAULT_LANG) -> str:
     """
     from mdd.align import GAP, LENGTH_ONLY
     from mdd.languages import get
-    from mdd.pipeline import FLAG_LENGTH_ONLY, INS_MIN_PROB
+    from mdd.pipeline import (
+        FLAG_LENGTH_ONLY,
+        INS_MIN_PROB,
+        LONG_VOWEL_MIN_MS,
+        LONG_VOWEL_MIN_RATIO,
+        SHORT_VOWEL_MAX_MS,
+        SHORT_VOWEL_MAX_RATIO,
+        _LONG_LENGTH_TARGETS,
+        _SHORT_LENGTH_TARGETS,
+    )
 
     profile = get(lang)
     tokens = [t for _, toks in canonical_tokens_by_word(text, lang) for t in toks]
@@ -85,6 +94,12 @@ def canonical_signature(text: str, lang: str = DEFAULT_LANG) -> str:
         str(profile.allow_final_ig),
         str(FLAG_LENGTH_ONLY),
         str(INS_MIN_PROB),
+        str(LONG_VOWEL_MIN_MS),
+        str(LONG_VOWEL_MIN_RATIO),
+        str(SHORT_VOWEL_MAX_MS),
+        str(SHORT_VOWEL_MAX_RATIO),
+        ",".join(sorted(_LONG_LENGTH_TARGETS)),
+        ",".join(sorted(_SHORT_LENGTH_TARGETS)),
         str(GAP),
         str(LENGTH_ONLY),
     )
@@ -117,6 +132,8 @@ def is_flagged(p: dict, tau: float) -> bool:
     from mdd.pipeline import INS_MIN_PROB
     if p["op"] == "ins":
         return p.get("conf") is None or p["conf"] >= INS_MIN_PROB
+    if (p.get("acoustics") or {}).get("duration_flagged"):
+        return True
     return p["op"] != "match" and (p["gop"] is None or p["gop"] < tau)
 
 

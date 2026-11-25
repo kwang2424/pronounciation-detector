@@ -14,6 +14,8 @@ if __name__ == "__main__":
 
 import argparse  # noqa: E402
 from collections import Counter  # noqa: E402
+from pathlib import Path  # noqa: E402
+import tempfile  # noqa: E402
 
 from mdd.normalize import tokenize  # noqa: E402
 
@@ -122,7 +124,39 @@ def evaluate(err: ErrorType, rep: dict, ctl: dict, j: int) -> dict:
     }
 
 
+def _measure_jitter_floor(esp: Espeak, grids, sample_n: int = 10) -> float:
+    """Measure espeak's repeat-render jitter (including duration) as the separation floor."""
+    import soundfile as sf
+
+    from mdd.validate import MIN_FLOOR, _distance, _spectrum
+
+    dists: list[float] = []
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        for idx, (text, (g, _, _)) in enumerate(grids.items()):
+            if idx >= sample_n:
+                break
+            p1 = root / f"jit_{idx}_a.wav"
+            p2 = root / f"jit_{idx}_b.wav"
+            esp.synth_phonemes(g.render(), p1)
+            esp.synth_phonemes(g.render(), p2)
+            try:
+                a, sr_a = sf.read(str(p1))
+                b, sr_b = sf.read(str(p2))
+            except Exception:
+                continue
+            sa = _spectrum([int(v * 32768) for v in a])
+            sb = _spectrum([int(v * 32768) for v in b])
+            if sa is None or sb is None:
+                continue
+            dur_a = len(a) / sr_a if sr_a else 0.0
+            dur_b = len(b) / sr_b if sr_b else 0.0
+            dists.append(_distance(sa, sb, dur_a, dur_b))
+    return max(sum(dists) / len(dists), MIN_FLOOR) if dists else MIN_FLOOR
+
+
 def run(esp: Espeak, grids, per_type: int) -> dict:
+    jitter = _measure_jitter_floor(esp, grids)
     results = {}
     for err in CATALOG:
         cands = candidates(err, grids, per_type)
@@ -149,7 +183,7 @@ def run(esp: Espeak, grids, per_type: int) -> dict:
             ctl_rep = analyse_cached(text, ctl, ctl.with_suffix(".json"))
             case = evaluate(err, rep, ctl_rep, j)
             case.update({"text": text, "word": pw[wi][0],
-                         "rendered": _rendered(ctl, inj)})
+                         "rendered": _rendered(ctl, inj, floor=jitter)})
             entry["cases"].append(case)
         results[err.name] = entry
         n = len(entry["cases"])
@@ -158,7 +192,7 @@ def run(esp: Espeak, grids, per_type: int) -> dict:
     return results
 
 
-def _rendered(control_wav, injected_wav) -> float | None:
+def _rendered(control_wav, injected_wav, floor: float | None = None) -> float | None:
     """How far the injected audio differs from the control, against synthesis jitter.
 
     An injection espeak does not actually render produces identical audio, and the
@@ -185,8 +219,10 @@ def _rendered(control_wav, injected_wav) -> float | None:
     dur_b = len(b) / sr_b if sr_b else 0.0
     # Same-file distance is zero for espeak's cached output, so compare against a
     # small absolute floor on the unit-normalised scale, as mdd.validate does.
-    from mdd.validate import MIN_FLOOR
-    return float(_distance(sa, sb, dur_a, dur_b) / MIN_FLOOR)
+    if floor is None:
+        from mdd.validate import MIN_FLOOR
+        floor = MIN_FLOOR
+    return float(_distance(sa, sb, dur_a, dur_b) / floor)
 
 
 def _rendered_ratio(entry) -> float | None:

@@ -62,12 +62,19 @@ def test_preprocess_recording_trims_silence_keeps_cropped_and_warns_clipping():
     sr = 16000
     speech = _harmonic_vowel(700, 1200, 2500, 0.35, sr)
 
-    # Leading/trailing 1.0 s digital silence gets trimmed cleanly
-    padded = np.concatenate([np.zeros(sr, dtype=np.float32), speech, np.zeros(sr, dtype=np.float32)])
+    # Leading/trailing 1.5 s dead air (> 1.2 s) gets trimmed cleanly
+    sil_long = np.zeros(int(sr * 1.5), dtype=np.float32)
+    padded = np.concatenate([sil_long, speech, sil_long])
     res = audio.preprocess_recording(padded, sr)
     assert res.ok
-    assert res.duration_s < 0.80
+    assert res.duration_s < 1.20
     assert res.voiced_s >= 0.30
+
+    # Normal 0.85 s trailing silence (<= 1.2 s) is preserved untouched
+    normal = np.concatenate([speech, np.zeros(int(sr * 0.85), dtype=np.float32)])
+    keep = audio.preprocess_recording(normal, sr)
+    assert keep.ok
+    assert len(keep.wav) == len(normal)
 
     # Tightly cropped clean harmonic speech must NOT be rejected as low-SNR
     cropped = audio.preprocess_recording(speech, sr)
@@ -163,6 +170,8 @@ class _MockLengthRecognizer:
 
 
 def test_pipeline_recovers_german_staat_and_huete_vowel_length():
+    from eval.common import is_flagged
+
     sr = 16000
     pad = np.zeros(int(sr * 0.15), dtype=np.float32)
     c1 = _high_freq_consonant(0.10, sr, seed=3)
@@ -188,6 +197,8 @@ def test_pipeline_recovers_german_staat_and_huete_vowel_length():
     assert flagged_a[0]["canonical"] == "aː"
     assert flagged_a[0]["realized"] == "a"
     assert "too short" in flagged_a[0]["tip"]
+    assert flagged_a[0]["acoustics"]["duration_flagged"] is True
+    assert is_flagged(flagged_a[0], -2.0) is True
 
     # 2) "Staat" spoken with a held 210 ms /aː/ passes cleanly
     v_long_a = _harmonic_vowel(700, 1200, 2500, 0.210, sr)
@@ -238,6 +249,36 @@ def test_pipeline_recovers_german_staat_and_huete_vowel_length():
     rec_da = _MockLengthRecognizer(wav_da, [("d", 0.99), ("a", 0.99)], segs_da)
     rep_da = pipeline.analyse("da", "unused.wav", rec_da, lang="de")
     assert [p for p in rep_da["phones"] if p["flagged"]] == []
+
+    # 5) Short unstressed /iː/ ("die", 60 ms) records acoustics but is NOT duration-flagged
+    v_die = _harmonic_vowel(300, 2200, 2800, 0.060, sr)
+    wav_die = np.concatenate([pad, c1, v_die, pad])
+    segs_die = [
+        recognizer.Segment("d", 0.19, 0.21, 0.0),
+        recognizer.Segment("iː", 0.27, 0.29, 0.0),
+    ]
+    rec_die = _MockLengthRecognizer(wav_die, [("d", 0.99), ("i", 0.99)], segs_die)
+    rep_die = pipeline.analyse("die", "unused.wav", rec_die, lang="de")
+    assert [p for p in rep_die["phones"] if p["flagged"]] == []
+    assert rep_die["phones"][1]["acoustics"] is not None
+    assert "duration_flagged" not in rep_die["phones"][1]["acoustics"]
+
+    # 6) 60 ms /yː/ before coda /ʁ/ ("führt") is NOT duration-flagged
+    v_fuehrt = _harmonic_vowel(300, 2000, 2600, 0.060, sr)
+    wav_fuehrt = np.concatenate([pad, c1, v_fuehrt, c2, pad])
+    segs_fuehrt = [
+        recognizer.Segment("f", 0.16, 0.18, 0.0),
+        recognizer.Segment("yː", 0.27, 0.29, 0.0),
+        recognizer.Segment("ʁ", 0.34, 0.36, 0.0),
+        recognizer.Segment("t", 0.39, 0.41, 0.0),
+    ]
+    rec_fuehrt = _MockLengthRecognizer(
+        wav_fuehrt,
+        [("f", 0.99), ("y", 0.99), ("ɐ", 0.99), ("t", 0.99)],
+        segs_fuehrt,
+    )
+    rep_fuehrt = pipeline.analyse("führt", "unused.wav", rec_fuehrt, lang="de")
+    assert [p for p in rep_fuehrt["phones"] if p["flagged"]] == []
 
 
 # ----------------------------------------- German allophony & HVPT pairs

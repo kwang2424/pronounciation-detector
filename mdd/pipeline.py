@@ -16,15 +16,16 @@ from .normalize import tokenize, tokenize_with_conf
 
 GOP_THRESHOLD = -1.0   # native TTS voices give 2.6% phone FPR here (4.3% with the gate off at 0);
                        # kept slightly conservative for noisier microphone audio. See eval/results/.
-VERSION = 5            # bump when alignment/flagging rules change (invalidates eval caches)
+VERSION = 6            # bump when alignment/flagging rules change (invalidates eval caches)
 FLAG_LENGTH_ONLY = False   # aː vs a etc.: 37% false-positive rate on native speech, so off by default
 INS_MIN_PROB = 0.6     # an inserted phone counts only if the recogniser was this sure of it (spurious
                        # insertions on native speech have median confidence 0.38, real phones 0.95)
-LONG_VOWEL_MIN_MS = 105.0
-LONG_VOWEL_MIN_RATIO = 1.15
-SHORT_VOWEL_MAX_MS = 190.0
-SHORT_VOWEL_MAX_RATIO = 2.2
+LONG_VOWEL_MIN_MS = 85.0
+LONG_VOWEL_MIN_RATIO = 1.20
+SHORT_VOWEL_MAX_MS = 155.0
+SHORT_VOWEL_MAX_RATIO = 2.55
 _SHORT_LENGTH_TARGETS = frozenset({"a", "y"})
+_LONG_LENGTH_TARGETS = frozenset({"aː", "yː"})
 
 # Coda r: espeak's G2P writes it as a consonant (German Bier -> biːʁ), but speakers vocalise it
 # to [ɐ] or merge it into the preceding vowel. Which realisations count as native is per-language
@@ -165,11 +166,18 @@ def analyse(text: str, wav_path: str | None = None, recognizer=None, realized_ip
                 }
                 if (profile.code == "de" and vm.bounded and not flagged
                         and (kind == "match" or _length_only(op.canonical, op.realized))):
-                    if (op.canonical.endswith("ː") and vm.duration_ms < LONG_VOWEL_MIN_MS
+                    has_coda_r = (
+                        cur_ci + 1 < len(canon_tokens)
+                        and canon_tokens[cur_ci + 1] == profile.r_canonical
+                        and coda_of[cur_ci + 1]
+                    )
+                    if (op.canonical in _LONG_LENGTH_TARGETS and not has_coda_r
+                            and vm.duration_ms < LONG_VOWEL_MIN_MS
                             and (vm.duration_ratio is None or vm.duration_ratio < LONG_VOWEL_MIN_RATIO)):
                         kind = "sub"
                         realized_out = op.canonical.rstrip("ː")
                         flagged = True
+                        phone_acoustics["duration_flagged"] = True
                         if op.canonical == "yː":
                             tip = (f"Vowel [yː] was too short ({vm.duration_ms:.0f} ms) — "
                                    f"hold it longer while keeping your tongue forward as for /i/ with rounded lips.")
@@ -182,6 +190,7 @@ def analyse(text: str, wav_path: str | None = None, recognizer=None, realized_ip
                         kind = "sub"
                         realized_out = f"{op.canonical}ː"
                         flagged = True
+                        phone_acoustics["duration_flagged"] = True
                         tip = (f"Vowel [{op.canonical}] was held too long ({vm.duration_ms:.0f} ms) — "
                                f"keep it crisp and short.")
 

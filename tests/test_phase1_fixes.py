@@ -65,6 +65,10 @@ def test_gop_expands_multichar_tokens_and_avoids_tail_drop():
     assert segs[3].gop > -0.1
     assert all(s.t_end > s.t_start for s in segs)
 
+    assert recognizer._expand_token("ɔʏ", {"<pad>": 0, "<unk>": 1, "ɔ": 2, "ɔø": 3}, 1) == [3]
+    assert recognizer._expand_token("p*", {"<pad>": 0, "<unk>": 1, "p": 2}, 1) == [2]
+    assert recognizer._expand_token("?", {"<pad>": 0, "<unk>": 1}, 1) == [1]
+
 
 def test_gop_handles_empty_and_too_short_inputs_without_crashing():
     vocab = {"<pad>": 0, "<unk>": 1, "t": 2, "s": 3}
@@ -305,3 +309,7 @@ def test_canonical_signature_tracks_equiv_and_ins_min_prob(monkeypatch):
 
     monkeypatch.setattr(pl, "INS_MIN_PROB", 0.75)
     assert common.canonical_signature("père", "fr") != before
+
+    before_de = common.canonical_signature("Staat", "de")
+    monkeypatch.setattr(pl, "LONG_VOWEL_MIN_MS", 120.0)
+    assert common.canonical_signature("Staat", "de") != before_de

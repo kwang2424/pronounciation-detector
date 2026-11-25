@@ -1,36 +1,36 @@
 # Native negative control
 
-510 native clips across 6 voices (8830 canonical phones from natural voices). Every flag is a false positive.
+408 native clips across 5 voices (7064 canonical phones from natural voices). Every flag is a false positive.
 
 Threshold τ is the GOP cutoff: a phone is flagged only if the free decode disagrees **and** its GOP is below τ. Less negative τ = stricter = more flags.
 
 ## Phone-level false-positive rate
 
-| τ | natural voices | all voices | de-DE-KatjaNeural | de-DE-ConradNeural | de-DE-AmalaNeural | de-DE-KillianNeural | Microsoft Hedda Desktop | espeak |
-|---|---|---|---|---|---|---|---|---|
-| -8 | 0.3% | 0.7% | 0.2% | 0.5% | 0.2% | 0.4% | 0.3% | 2.7% |
-| -6 | 0.4% | 1.1% | 0.2% | 0.6% | 0.4% | 0.5% | 0.4% | 4.2% |
-| -4 | 0.9% | 1.8% | 0.6% | 1.1% | 1.1% | 0.8% | 0.7% | 6.5% |
-| -3 | 1.2% | 2.3% | 0.8% | 1.3% | 1.6% | 1.1% | 1.1% | 8.2% |
-| -2 | 1.6% | 3.1% | 1.4% | 1.9% | 2.2% | 1.2% | 1.5% | 10.5% |
-| -1.5 | 2.0% | 3.6% | 1.7% | 2.4% | 2.8% | 1.6% | 1.5% | 11.7% |
-| -1 | 2.6% | 4.4% | 2.2% | 3.0% | 3.2% | 2.3% | 2.2% | 13.5% |
-| -0.5 | 3.4% | 5.5% | 2.9% | 3.8% | 4.4% | 2.9% | 3.2% | 15.8% |
-| 0 | 4.3% | 6.6% | 3.9% | 4.8% | 5.2% | 3.7% | 3.9% | 18.1% |
+| τ | natural voices | all voices | de-DE-KatjaNeural | de-DE-ConradNeural | de-DE-AmalaNeural | de-DE-KillianNeural | espeak |
+|---|---|---|---|---|---|---|---|
+| -8 | 0.6% | 1.1% | 0.3% | 0.8% | 0.3% | 0.9% | 3.3% |
+| -6 | 0.6% | 1.4% | 0.3% | 0.8% | 0.3% | 0.9% | 4.6% |
+| -4 | 1.0% | 2.2% | 0.8% | 1.1% | 0.7% | 1.2% | 7.2% |
+| -3 | 1.4% | 2.8% | 1.1% | 1.7% | 1.0% | 1.6% | 8.7% |
+| -2 | 2.0% | 3.8% | 1.5% | 2.7% | 1.3% | 2.6% | 11.1% |
+| -1.5 | 2.4% | 4.5% | 1.8% | 3.0% | 1.8% | 3.1% | 12.9% |
+| -1 | 3.1% | 5.3% | 2.4% | 3.5% | 2.4% | 3.9% | 14.2% |
+| -0.5 | 4.0% | 6.5% | 3.2% | 4.8% | 3.3% | 4.9% | 16.4% |
+| 0 | 5.0% | 7.8% | 4.3% | 5.7% | 4.2% | 5.8% | 18.7% |
 
 ## Sentences with at least one flag
 
-| τ | natural voices | de-DE-KatjaNeural | de-DE-ConradNeural | de-DE-AmalaNeural | de-DE-KillianNeural | Microsoft Hedda Desktop | espeak |
-|---|---|---|---|---|---|---|---|
-| -8 | 5.5% | 3.9% | 8.8% | 3.9% | 5.9% | 4.9% | 32.4% |
-| -6 | 7.1% | 3.9% | 9.8% | 6.9% | 7.8% | 6.9% | 48.0% |
-| -4 | 14.1% | 10.8% | 15.7% | 17.6% | 13.7% | 12.7% | 64.7% |
-| -3 | 18.2% | 14.7% | 18.6% | 22.5% | 17.6% | 17.6% | 72.5% |
-| -2 | 23.5% | 20.6% | 25.5% | 27.5% | 19.6% | 24.5% | 78.4% |
-| -1.5 | 26.3% | 23.5% | 28.4% | 33.3% | 21.6% | 24.5% | 80.4% |
-| -1 | 32.7% | 27.5% | 34.3% | 39.2% | 32.4% | 30.4% | 83.3% |
-| -0.5 | 41.6% | 36.3% | 44.1% | 48.0% | 37.3% | 42.2% | 84.3% |
-| 0 | 49.0% | 46.1% | 51.0% | 54.9% | 46.1% | 47.1% | 89.2% |
+| τ | natural voices | de-DE-KatjaNeural | de-DE-ConradNeural | de-DE-AmalaNeural | de-DE-KillianNeural | espeak |
+|---|---|---|---|---|---|---|
+| -8 | 9.3% | 4.9% | 12.7% | 4.9% | 14.7% | 40.2% |
+| -6 | 10.0% | 5.9% | 13.7% | 5.9% | 14.7% | 53.9% |
+| -4 | 16.2% | 13.7% | 18.6% | 11.8% | 20.6% | 70.6% |
+| -3 | 21.6% | 16.7% | 25.5% | 17.6% | 26.5% | 75.5% |
+| -2 | 28.4% | 22.5% | 34.3% | 21.6% | 35.3% | 81.4% |
+| -1.5 | 32.1% | 25.5% | 37.3% | 26.5% | 39.2% | 84.3% |
+| -1 | 37.7% | 33.3% | 39.2% | 34.3% | 44.1% | 85.3% |
+| -0.5 | 46.6% | 41.2% | 49.0% | 44.1% | 52.0% | 86.3% |
+| 0 | 58.1% | 55.9% | 59.8% | 54.9% | 61.8% | 88.2% |
 
 ## Alignment disagreement before the GOP gate
 
@@ -38,38 +38,41 @@ Share of canonical phones where the free decode disagrees at all (what the FPR w
 
 | voice | disagreement |
 |---|---|
-| edge:de-DE-KatjaNeural | 5.2% |
-| edge:de-DE-ConradNeural | 5.8% |
-| edge:de-DE-AmalaNeural | 6.4% |
-| edge:de-DE-KillianNeural | 4.9% |
-| sapi:Microsoft Hedda Desktop | 5.0% |
-| espeak | 20.9% |
+| edge:de-DE-KatjaNeural | 4.9% |
+| edge:de-DE-ConradNeural | 6.8% |
+| edge:de-DE-AmalaNeural | 4.9% |
+| edge:de-DE-KillianNeural | 6.9% |
+| espeak | 21.2% |
 
 ## Recommended threshold
 
-Largest τ with natural-voice FPR below 5%: **τ = 0** (FPR 4.3%).
+Largest τ with natural-voice FPR below 5%: **τ = -0.5** (FPR 4.0%).
 
-## Most falsely flagged phones (natural voices, τ = -2)
+By the **median voice** (robust to one bad talker): **τ = -0.5** (median FPR 4.0%).
+
+Per-voice disagreement ranges 4.9%–6.9%. The voices agree closely, so pooling is safe.
+
+## Most falsely flagged phones (natural voices, τ = -1)
 
 | canonical | false flags | occurrences | rate | heard as |
 |---|---|---|---|---|
-| (insertion) | 26 | 0 | n/a | t ×12, ə ×6, j ×4 |
-| eː | 14 | 195 | 7.2% | iː ×12, ɛ ×2 |
-| d | 11 | 395 | 2.8% | t ×10, ∅ ×1 |
-| ʊ | 10 | 115 | 8.7% | uː ×10 |
-| ə | 9 | 640 | 1.4% | ɛ ×6, ∅ ×1, a ×1 |
-| l | 7 | 285 | 2.5% | ∅ ×6, ə ×1 |
-| ʁ | 7 | 590 | 1.2% | ∅ ×6, aː ×1 |
-| ɛ | 6 | 285 | 2.1% | iː ×3, eː ×2, ɪ ×1 |
-| œ | 6 | 35 | 17.1% | ɛ ×6 |
-| ç | 5 | 240 | 2.1% | ∅ ×2, ʃ ×1, ɕ ×1 |
-| iː | 5 | 340 | 1.5% | ɪ ×5 |
-| ɜ | 4 | 130 | 3.1% | ə ×2, ɐ ×1, a ×1 |
-| ɔ | 4 | 75 | 5.3% | oː ×4 |
-| a | 4 | 310 | 1.3% | aɪ ×4 |
-| b | 4 | 195 | 2.1% | v ×2, ɡ ×1, d ×1 |
-| t | 3 | 770 | 0.4% | ∅ ×3 |
-| n | 3 | 740 | 0.4% | m ×2, ∅ ×1 |
-| ɪ | 2 | 475 | 0.4% | iː ×2 |
-| pf | 2 | 5 | 40.0% | f ×2 |
-| aː | 2 | 135 | 1.5% | ∅ ×1, aɪ ×1 |
+| (insertion) | 31 | 0 | n/a | t ×13, ʁ ×8, ə ×4 |
+| eː | 28 | 156 | 17.9% | iː ×23, ɛ ×5 |
+| œ | 22 | 28 | 78.6% | ɛ ×10, ə ×8, a ×2 |
+| ɔʏ | 18 | 56 | 32.1% | ɔ ×9, o ×4, aɪ ×3 |
+| ə | 17 | 512 | 3.3% | ɛ ×5, eː ×4, e ×2 |
+| yː | 12 | 44 | 27.3% | uː ×10, y ×2 |
+| d | 11 | 316 | 3.5% | t ×8, ∅ ×3 |
+| ʊ | 11 | 92 | 12.0% | uː ×8, u ×3 |
+| l | 8 | 228 | 3.5% | ∅ ×8 |
+| ɜ | 8 | 104 | 7.7% | ə ×6, a ×2 |
+| t | 6 | 616 | 1.0% | ∅ ×6 |
+| ɔ | 6 | 60 | 10.0% | oː ×4, o ×2 |
+| ɛ | 5 | 228 | 2.2% | eː ×5 |
+| n | 4 | 592 | 0.7% | m ×4 |
+| ʁ | 4 | 472 | 0.8% | ∅ ×4 |
+| b | 4 | 156 | 2.6% | d ×2, p ×2 |
+| a | 3 | 248 | 1.2% | aɪ ×2, aː ×1 |
+| y | 3 | 28 | 10.7% | ə ×3 |
+| ɪ | 2 | 380 | 0.5% | iː ×2 |
+| iː | 2 | 272 | 0.7% | ɪ ×2 |

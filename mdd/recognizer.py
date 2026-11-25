@@ -111,6 +111,12 @@ class PhoneRecognizer:
         return segs
 
 
+_VOCAB_ALIASES: dict[str, tuple[str, ...]] = {
+    "ɔʏ": ("ɔø", "ɔɪ"),   # espeak-trained XLSR-53 vocab contains ɔø/ɔɪ, not ɔʏ
+    "ʏ": ("y",),
+}
+
+
 def _expand_token(tok: str, tok2id: dict[str, int], unk_id: int) -> list[int]:
     """Expand a canonical token into vocab IDs, keeping multi-char constituents."""
     if tok in tok2id:
@@ -118,6 +124,9 @@ def _expand_token(tok: str, tok2id: dict[str, int], unk_id: int) -> list[int]:
     nfc = unicodedata.normalize("NFC", tok)
     if nfc in tok2id:
         return [tok2id[nfc]]
+    for alias in _VOCAB_ALIASES.get(nfc, ()):
+        if alias in tok2id:
+            return [tok2id[alias]]
     out: list[int] = []
     i = 0
     while i < len(tok):
@@ -127,6 +136,8 @@ def _expand_token(tok: str, tok2id: dict[str, int], unk_id: int) -> list[int]:
             i = hit
         else:
             if tok[i] != "ː" and not unicodedata.combining(tok[i]):
-                out.append(unk_id)
+                ch_alias = next((a for a in _VOCAB_ALIASES.get(tok[i], ()) if a in tok2id), None)
+                if ch_alias is not None:
+                    out.append(tok2id[ch_alias])
             i += 1
     return out or [unk_id]

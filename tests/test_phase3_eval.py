@@ -133,6 +133,13 @@ def test_synthetic_errors_conditional_der_clean_recall_and_duration_rendered(tmp
     sf.write(str(w2), (0.3 * np.sin(2 * np.pi * 220 * t2)).astype(np.float32), sr)
     ratio = synthetic_errors._rendered(w1, w2)
     assert ratio is not None and ratio > 5.0
+    from mdd.validate import MIN_FLOOR
+    ratio_08 = synthetic_errors._rendered(w1, w2, floor=0.08)
+    assert ratio_08 == pytest.approx(ratio * MIN_FLOOR / 0.08)
+    esp = Espeak("de")
+    grids, _ = synthetic_errors.build_grids(esp, ["Das Haus ist groß.", "Ich bin gut.", "Die Tür ist zu."])
+    jitter = synthetic_errors._measure_jitter_floor(esp, grids, sample_n=3)
+    assert isinstance(jitter, float) and jitter >= MIN_FLOOR
     assert set(THRESHOLDS)
 
 
