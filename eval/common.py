@@ -92,6 +92,8 @@ def canonical_signature(text: str, lang: str = DEFAULT_LANG) -> str:
         ",".join(sorted(profile.strip)),
         ";".join(f"{k}>{','.join(sorted(v))}" for k, v in sorted(profile.allow.items())),
         str(profile.allow_final_ig),
+        ",".join(sorted(profile.allowed_vocab)),
+        ";".join(f"{k}:{v:g}" for k, v in sorted(profile.gop_offsets.items())),
         str(FLAG_LENGTH_ONLY),
         str(INS_MIN_PROB),
         str(LONG_VOWEL_MIN_MS),
@@ -134,7 +136,8 @@ def is_flagged(p: dict, tau: float) -> bool:
         return p.get("conf") is None or p["conf"] >= INS_MIN_PROB
     if (p.get("acoustics") or {}).get("duration_flagged"):
         return True
-    return p["op"] != "match" and (p["gop"] is None or p["gop"] < tau)
+    eff_tau = tau + float(p.get("gop_offset") or 0.0)
+    return p["op"] != "match" and (p["gop"] is None or p["gop"] < eff_tau)
 
 
 def canonical_tokens_by_word(text: str, lang: str = DEFAULT_LANG) -> list[tuple[str, list[str]]]:

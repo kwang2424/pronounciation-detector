@@ -16,7 +16,7 @@ from .normalize import tokenize, tokenize_with_conf
 
 GOP_THRESHOLD = -1.0   # native TTS voices give 2.6% phone FPR here (4.3% with the gate off at 0);
                        # kept slightly conservative for noisier microphone audio. See eval/results/.
-VERSION = 6            # bump when alignment/flagging rules change (invalidates eval caches)
+VERSION = 7            # bump when alignment/flagging rules change (invalidates eval caches)
 FLAG_LENGTH_ONLY = False   # aː vs a etc.: 37% false-positive rate on native speech, so off by default
 INS_MIN_PROB = 0.6     # an inserted phone counts only if the recogniser was this sure of it (spurious
                        # insertions on native speech have median confidence 0.38, real phones 0.95)
@@ -53,6 +53,7 @@ class PhoneResult:
     conf: float | None = None   # recogniser confidence in the realised phone (insertions only)
     word_idx: int | None = None
     acoustics: dict | None = None
+    gop_offset: float = 0.0
 
 
 def _token_confidences(spikes: list[tuple[str, float]], real_tokens: list[str],
@@ -104,7 +105,10 @@ def analyse(text: str, wav_path: str | None = None, recognizer=None, realized_ip
                 "clipped_frac": round(audio_check.clipped_frac, 4),
                 "warnings": list(audio_check.warnings),
             }
-        logp = recognizer.log_probs(wav)
+        if profile.allowed_vocab and getattr(recognizer, "supports_logit_mask", False):
+            logp = recognizer.log_probs(wav, allowed_tokens=profile.allowed_vocab)
+        else:
+            logp = recognizer.log_probs(wav)
         spikes = recognizer.greedy_spikes(logp)
         realized_ipa = "".join(tok for tok, _ in spikes)
         segs = recognizer.gop(logp, canon_tokens)
@@ -146,10 +150,12 @@ def analyse(text: str, wav_path: str | None = None, recognizer=None, realized_ip
                 word_idx = word_idx_of[prev_ci]
             else:
                 word, word_idx = None, None
+        gop_offset = 0.0
         if kind == "ins":
             flagged = conf is None or conf >= INS_MIN_PROB
         else:
-            flagged = kind != "match" and (gop is None or gop < threshold)
+            gop_offset = float(profile.gop_offsets.get(op.canonical, 0.0)) if op.canonical else 0.0
+            flagged = kind != "match" and (gop is None or gop < threshold + gop_offset)
 
         realized_out = op.realized
         tip = tip_for(op.canonical, realized_out, profile) if flagged else None
@@ -198,7 +204,8 @@ def analyse(text: str, wav_path: str | None = None, recognizer=None, realized_ip
                                    tip,
                                    conf if kind == "ins" else None,
                                    word_idx,
-                                   phone_acoustics))
+                                   phone_acoustics,
+                                   gop_offset))
 
     word_scores = {}
     word_min_gop: dict[int, float] = {}

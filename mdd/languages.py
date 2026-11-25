@@ -66,6 +66,13 @@ class LanguageProfile:
     #: Accept word-final -ig as [ɪk] (Southern/Austrian/Swiss standard) without
     #: relaxing [ç] elsewhere (e.g. Ich/möchte -> k remains an error).
     allow_final_ig: bool = False
+    #: Optional whitelist of CTC recognizer vocab tokens (target inventory + expected
+    #: L2 error phones). Empty means unconstrained decoding (all model tokens allowed).
+    allowed_vocab: frozenset[str] = frozenset()
+    #: Per-phone GOP threshold offsets (effective threshold = threshold + offset).
+    #: Negative values make noisy native phones more lenient; positive values tighten
+    #: clean phones whose genuine errors produce mild GOP drops.
+    gop_offsets: dict[str, float] = field(default_factory=dict)
     #: Recogniser/G2P spelling variants folded to one token.
     equiv: dict[str, str] = field(default_factory=dict)
     #: Diacritics stripped in addition to BASE_STRIP.
@@ -120,6 +127,24 @@ GERMAN = LanguageProfile(
     coda_r_ok=frozenset({None, "ɐ", "ɜ", "ə", "a"}),
     allow={"x": frozenset({"χ"})},
     allow_final_ig=True,
+    allowed_vocab=frozenset({
+        # German canonical consonants, affricates, and native allophones
+        "p", "b", "t", "d", "k", "ɡ", "f", "v", "s", "z", "ʃ", "ʒ", "ç", "x", "χ",
+        "h", "m", "n", "ŋ", "l", "j", "ʁ", "r", "ɾ", "pf", "ts", "tʃ", "dʒ",
+        # German vowels and diphthongs (including espeak/wav2vec2 variants)
+        "a", "aː", "ɑ", "ɑː", "e", "eː", "ɛ", "ɛː", "i", "iː", "ɪ",
+        "o", "oː", "ɔ", "u", "uː", "ʊ", "y", "yː", "ø", "øː", "œ",
+        "ə", "ɐ", "ɜ", "ɜː", "aɪ", "aʊ", "ɔø", "ɔɪ", "oɪ",
+        # Common L1-English / L2 learner substitutions and syllabic consonants
+        "ɹ", "w", "θ", "ð", "æ", "ʌ", "ɒ", "eɪ", "oʊ", "ju", "ɛʊ", "l̩", "n̩", "əl",
+    }),
+    gop_offsets={
+        "œ": -1.0,    # noisy on native speech; genuine ö_short->ɔ/ɛ errors sit <= -2.04
+        "ɔʏ": -2.0,   # noisy on native speech (mapped to ɔø); eu->uː errors sit <= -5.87
+        "yː": -0.8,   # native CTC noise sits >= -2.13; genuine ü_long errors sit <= -1.83
+        "ç": 0.75,    # ultra-clean on native speech (1.6%); rescues ich->ach (GOP -0.26..-0.77)
+        "oː": 0.75,   # ultra-clean on native speech; rescues o_long->ɔ (GOP -0.28..-0.90)
+    },
     equiv={
         "ɐ̯": "ɐ", "ɛ̃": "ɛ", "ɑ": "a", "ɑː": "aː",
         "ɔø": "ɔʏ", "ɔy": "ɔʏ", "ɔɪ": "ɔʏ",   # espeak writes eu/äu as ɔø

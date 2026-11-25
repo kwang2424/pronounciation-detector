@@ -24,12 +24,15 @@ class Segment:
 
 
 class PhoneRecognizer:
+    supports_logit_mask = True
+
     def __init__(self, model_id: str = MODEL_ID, device: str | None = None):
         self.device = device or ("cuda" if torch.cuda.is_available() else "cpu")
         self.processor = Wav2Vec2Processor.from_pretrained(model_id)
         self.model = Wav2Vec2ForCTC.from_pretrained(model_id).to(self.device).eval()
         self.vocab = {v: k for k, v in self.processor.tokenizer.get_vocab().items()}
         self.blank = self.processor.tokenizer.pad_token_id
+        self._mask_cache: dict[frozenset[str], torch.Tensor | None] = {}
 
     @staticmethod
     def load_audio(path: str, sr: int = 16000) -> np.ndarray:
@@ -40,11 +43,38 @@ class PhoneRecognizer:
             wav = F.resample(torch.from_numpy(wav), file_sr, sr).numpy()
         return wav
 
+    def _logit_mask(self, allowed_tokens: frozenset[str] | set[str]) -> torch.Tensor | None:
+        key = frozenset(allowed_tokens)
+        cache = getattr(self, "_mask_cache", None)
+        if cache is None:
+            cache = {}
+            self._mask_cache = cache
+        if key in cache:
+            return cache[key]
+        tok2id = self.processor.tokenizer.get_vocab()
+        matched = [tok2id[t] for t in key if t in tok2id]
+        if not matched:
+            cache[key] = None
+            return None
+        mask = torch.full((len(tok2id),), float("-inf"))
+        mask[self.blank] = 0.0
+        mask[matched] = 0.0
+        cache[key] = mask
+        return mask
+
     @torch.no_grad()
-    def log_probs(self, wav: np.ndarray) -> torch.Tensor:
+    def log_probs(
+        self,
+        wav: np.ndarray,
+        allowed_tokens: frozenset[str] | set[str] | None = None,
+    ) -> torch.Tensor:
         inputs = self.processor(wav, sampling_rate=16000, return_tensors="pt").to(self.device)
-        logits = self.model(**inputs).logits[0]          # (T, V)
-        return torch.log_softmax(logits, dim=-1).cpu()
+        logits = self.model(**inputs).logits[0].cpu()    # (T, V)
+        if allowed_tokens:
+            mask = self._logit_mask(allowed_tokens)
+            if mask is not None and mask.shape[0] == logits.shape[-1]:
+                logits = logits + mask
+        return torch.log_softmax(logits, dim=-1)
 
     def greedy_spikes(self, logp: torch.Tensor) -> list[tuple[str, float]]:
         """Greedy CTC decode as (token, confidence) pairs, confidence being the highest
